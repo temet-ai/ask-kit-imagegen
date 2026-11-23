@@ -1,3 +1,5 @@
+import { jobSummary } from '../lib/job-summary.mjs';
+
 export const meta = {
   purpose: "Make a new image (or edit one, with `image` and `change`) in a studio and wait for it: the request goes to the studio's Codex thread, which uses image_gen, checks the image and saves it. Needs act. Returns the finished job, or the job still running when `wait` runs out.",
   params: {
@@ -16,7 +18,7 @@ export const meta = {
     avoid: "what must not appear; optional", studio: "studio name, default default",
     wait: "seconds to wait before handing back a running job, default 50",
   },
-  returns: "the job: {id, status, file, copiedTo, prompt, checked, notes, attempts, review, validation, deliveryError, seconds}; status running or queued means it is still going (use the wait script with its id)",
+  returns: "compact job status, paths, elapsed time, validation and unresolved review checks with counts; full receipt through imagegen.job(id). Running or queued means it is still going (use wait with its id)",
   example: 'await scripts.run("make", { prompt: "a brass lighthouse icon, flat, no text", out: "assets/" })',
 };
 
@@ -32,5 +34,5 @@ export default async function ({ imagegen }, { prompt, change, image, out, refs,
   let j = job;
   const until = Date.now() + Math.max(0, Number(wait) || 0) * 1000;
   while (["queued", "running"].includes(j.status) && Date.now() < until) j = await imagegen.wait(j.id, Math.min(55, Math.ceil((until - Date.now()) / 1000)));
-  return j;
+  return jobSummary(j);
 }

@@ -35,7 +35,7 @@ Use scripts.run("library", {action:...}) or the library API for this work.
   {image: "path", role: "style reference"}; label product/identity, style and composition inputs
   when the caller distinguishes them. Missing required references are a blocker; never substitute.
   Known output paths recover their source thread and unresolved checks when their bytes still
-  match the saved image. Read inputs[].sourceReview; a reference may have defects to avoid repeating.
+  match the saved image. Full jobs expose inputs[].sourceReview; a reference may have defects to avoid repeating.
 - Send related images (one project, one set of shots) to one studio, even several at once: a busy
   studio forks its thread and runs up to 4 jobs in parallel with its style kept. Don't spread a set
   over studios to get parallelism; that loses the shared style and re-reads all guidance each time.
@@ -62,3 +62,6 @@ concise account of checked/notes. Done means a valid image was saved. It is not 
 report review.status and any warnings. A needs_review/unverified image must not be described as
 approved. Report deliveryError and the preserved original's path if the requested copy failed.
 Quote the full final prompt only when asked. For running work return id, status and elapsed time.
+Make/wait/recent-id summaries omit prompts and passing-check details to fit the host's output
+limit. If review.omittedChecks or omittedWarnings is nonzero, select those fields from
+imagegen.job(id) in a separate cell before reporting all defects; the full receipt is retained.

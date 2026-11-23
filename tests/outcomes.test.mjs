@@ -64,7 +64,9 @@ test("make and wait scripts return the completed review without resubmitting", a
     job() { return { id: completed.id, status: "running" }; },
     async wait() { waited++; return completed; },
   };
-  assert.strictEqual(await makeImage({ imagegen }, { prompt: "The Watch", wait: 1 }), completed);
-  assert.strictEqual(await waitImage({ imagegen }, { id: completed.id, seconds: 1 }), completed);
+  const made = await makeImage({ imagegen }, { prompt: "The Watch", wait: 1 });
+  const waitedJob = await waitImage({ imagegen }, { id: completed.id, seconds: 1 });
+  assert.equal(made.id, completed.id); assert.equal(made.review.status, 'needs_review');
+  assert.deepEqual(waitedJob.review.warnings, completed.review.warnings);
   assert.equal(submitted, 1); assert.equal(waited, 2);
 });

@@ -106,6 +106,10 @@ approved references to keep a set consistent. The kit does not expand requests i
 `unverified`; read it along with `checked`, `notes` and `review.warnings`. Visual review is the
 studio's assessment. `validation` independently records dimensions, format, alpha, byte count
 and SHA-256. A remaining mismatch is returned with the image for review.
+The `make`, `wait` and `recent id=...` scripts return compact receipts so long prompts cannot
+push review findings past the host's output limit. They include unresolved checks and counts of
+passing and omitted checks. The full record remains in `imagegen.job(id)` and
+`recent id=... full=true`; select individual fields when a full receipt is too long.
 
 For transparent images that are hard to inspect in a viewer, the studio can create a separate
 light/dark inspection sheet. This preview never replaces the delivered image or its alpha.
@@ -135,7 +139,7 @@ It does not copy the prompt or image. The runner records completion even when th
 polls the job. Ask-kit 0.6.0 includes these outcomes in `report --kit imagegen` and `improve`.
 An unwritable journal leaves the saved image available and returns `outcomeJournalError`.
 Scripts: `make`, `wait`, `recent` (one line per image with its first unresolved defect; `id=` for
-every review check), `cancel`, `studios`, `doctor`, `library`, `workflows`. For example:
+its compact review), `cancel`, `studios`, `doctor`, `library`, `workflows`. For example:
 `ask-kit run imagegen recent search=lighthouse`. A direct `make` run spends image quota.
 
 Run offline regression checks with `node --test tests/*.test.mjs`; they use a fake Codex process
