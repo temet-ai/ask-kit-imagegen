@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspectImage } from "./lib/studio.mjs";
+import { outcomeContext } from "./lib/outcomes.mjs";
 import { createLibrary } from "./lib/library.mjs";
 import { selectWorkflow, workflows } from "./lib/workflows.mjs";
 
@@ -71,7 +72,7 @@ function jobView(j) {
   if (j.checked) out.checked = j.checked;
   if (j.notes) out.notes = j.notes;
   if (j.attempts) out.attempts = j.attempts;
-  for (const key of ["review", "validation", "deliveryError", "guidanceRevision", "workflow", "libraryResult", "libraryError", "referenceUse", "observations", "route", "thread", "baseThread"]) if (j[key]) out[key] = j[key];
+  for (const key of ["review", "validation", "deliveryError", "guidanceRevision", "workflow", "libraryResult", "libraryError", "referenceUse", "observations", "route", "thread", "baseThread", "outcomeJournalError"]) if (j[key]) out[key] = j[key];
   if (j.libraryContext) out.library = { area: j.libraryContext.name, revision: j.libraryContext.revision, referenceIds: j.libraryContext.references.map(r=>r.id) };
   if (status === "failed") out.error = stale ? "the runner stopped without finishing (killed, or the machine restarted)" : j.error;
   out.queuedAt = j.queuedAt;
@@ -168,6 +169,7 @@ export function make({ settings = {}, cwd: hostCwd, act = false } = {}) {
       id, studio, kind, request, attach, status: "queued", queuedAt: new Date().toISOString(),
       dir, target: kind === "start" ? null : path.join(dir, `${name}.png`), out: resolveOut(out, name),
       callerCwd: cwd, libraryRoot: library.root, libraryContext, workflow, sourceThread,
+      outcomeJournal: outcomeContext(),
     };
     writeJson(p.job(id), job);
     const child = spawn(process.execPath, [path.join(KIT_DIR, "runner.mjs"), p.job(id)], { detached: true, stdio: "ignore", env: process.env });

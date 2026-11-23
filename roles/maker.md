@@ -5,11 +5,11 @@ The caller wants an image made, edited or redone.
    known. Missing required images must be reported rather than guessed.
 2. Find the relevant reference area and read its style/feedback. Review its automatic selection;
    choose referenceIds when the intended references need semantic judgment. Label each reference's
-   purpose. Choose a bundled workflow for a clear specialist brief, or use auto. Queue once with
+   purpose. Choose a bundled workflow for a clear specialist brief, or use auto. Queue once through scripts.run("make", options) with
    prompt/change, image, refs, out, use, size, avoid, context, transparent, studio, area, referenceIds
    and workflow. maxAttempts defaults to 2; use 1 if the caller asks for a single attempt.
    A detailed brief should reach the studio intact.
-3. Call await imagegen.wait(id,55) in separate cells. Stop at done/failed, or hand back a still
+3. Use scripts.run("wait", {id,seconds:55}) in separate cells. Stop at done/failed, or hand back a still
    running job after about four minutes. Do not submit a replacement while this job may finish.
 4. Report its path, id, elapsed time, actual dimensions and review status. Include remaining
    defects, unverified checks or delivery errors; keep a valid imperfect image available.

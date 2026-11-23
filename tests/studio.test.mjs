@@ -47,7 +47,7 @@ fs.writeFileSync(process.argv[process.argv.indexOf('-o')+1],JSON.stringify(reply
 console.log(JSON.stringify({type:'turn.completed',usage:{}}));
 `);
   fs.chmodSync(fake, 0o755);
-  const env = { ...process.env, XDG_STATE_HOME: path.join(dir, 'state'), CODEX_HOME: path.join(dir, 'codex'), PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, FIXTURE: png, TEST_MODE: mode, TEST_DIR: dir };
+  const env = { ...process.env, ASK_KIT_STATE: path.join(dir, 'ask-state'), XDG_STATE_HOME: path.join(dir, 'state'), CODEX_HOME: path.join(dir, 'codex'), PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, FIXTURE: png, TEST_MODE: mode, TEST_DIR: dir };
   return { dir, env };
 }
 
@@ -72,6 +72,19 @@ async function run(e, kind, request) {
   });
   return JSON.parse(fs.readFileSync(jobFile));
 }
+
+test('a detached runner journals the final size failure without a polling ask', async () => {
+  const e = environment('journal-size');
+  e.env.ASK_KIT_STATE = path.join(e.dir, 'ask-state');
+  e.env.ASK_KIT_CALLER = 'vimes-session';
+  const j = await run(e, 'make', { prompt: 'The Watch badge', size: '16:9' });
+  assert.equal(j.status, 'done');
+  const file = path.join(e.env.ASK_KIT_STATE, 'imagegen/outcomes.jsonl');
+  const r = JSON.parse(fs.readFileSync(file, 'utf8').trim());
+  assert.equal(r.jobId, j.id); assert.equal(r.session, 'vimes-session');
+  assert.equal(r.ok, true); assert.equal(r.review.status, 'needs_review');
+  assert.ok(r.review.warnings.some(w => /aspect ratio/.test(w)));
+});
 
 test('decodes image and measures actual alpha and size', () => {
   const result = inspectImage(png);

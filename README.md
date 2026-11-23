@@ -124,6 +124,13 @@ a server-side image-tool quota. The kit does not claim to control the hidden ima
 | `CALLER_DIR` | Base folder for relative paths | Caller folder |
 
 State is under `$XDG_STATE_HOME/ask-kit-imagegen/`, or `~/.local/state/ask-kit-imagegen/`.
+Completed and failed image jobs also append a bounded outcome to
+`$ASK_KIT_STATE/imagegen/outcomes.jsonl` (default `$XDG_STATE_HOME/ask-kit/imagegen/`, or
+`~/.local/state/ask-kit/imagegen/`). This records the job id, caller session, completion time,
+duration, execution result and review status, with short warnings and failed-check notes.
+It does not copy the prompt or image. The runner records completion even when the caller never
+polls the job. Ask-kit 0.6.0 includes these outcomes in `report --kit imagegen` and `improve`.
+An unwritable journal leaves the saved image available and returns `outcomeJournalError`.
 Scripts: `make`, `wait`, `recent` (one line per image; `id=` for one full record), `cancel`, `studios`, `doctor`, `library`, `workflows`. For example:
 `ask-kit run imagegen recent search=lighthouse`. A direct `make` run spends image quota.
 

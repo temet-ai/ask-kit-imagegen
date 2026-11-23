@@ -8,6 +8,7 @@ import { alive, codexHome, paths, readJson, writeJson } from "./imagegen.mjs";
 
 import { conformImage, inspectImage, parseReply, requestText, responseSchema, reviewResult } from "./lib/studio.mjs";
 import { createLibrary } from "./lib/library.mjs";
+import { recordOutcome } from "./lib/outcomes.mjs";
 const TURN_LIMIT_MS = 15 * 60_000;
 const QUEUE_LIMIT_MS = 45 * 60_000;
 const jobFile = process.argv[2];
@@ -32,7 +33,8 @@ function journalResult(result) {
   try { return {libraryResult:createLibrary({root:job.libraryRoot,act:true}).recordJob({...job,...result})}; }
   catch (e) { return {libraryError:`The image job is preserved, but its library journal needs repair: ${e.message}`}; }
 }
-const fail = (error) => { const result={status:"failed",error,finishedAt:now()}; save({...result,...journalResult(result)}); releaseLock(); process.exit(1); };
+const journalOutcome = () => { const result = recordOutcome(job); if (result.error) save({ outcomeJournalError: result.error }); };
+const fail = (error) => { const result={status:"failed",error,finishedAt:now()}; save({...result,...journalResult(result)}); journalOutcome(); releaseLock(); process.exit(1); };
 function stopChild(signal = "SIGTERM") {
   try { if (child?.pid) process.kill(-child.pid, signal); } catch {}
 }
@@ -282,6 +284,7 @@ try {
     area:job.request.area, libraryResult:job.libraryResult, workflow:job.workflow,
     seconds: Math.round((Date.now() - started) / 1000),
   }) + "\n");
+  journalOutcome();
   releaseLock();
 
 } catch (e) { fail(e.message); }

@@ -74,7 +74,7 @@ interface Job {
   workflow?: Workflow; library?: {area: string; revision: number; referenceIds: string[]};
   libraryResult?: LibraryResult; libraryError?: string;
   referenceUse?: {reference: string; traits: string}[]; observations?: string[];
-  error?: string;
+  error?: string; outcomeJournalError?: string;
   queuedAt: string; startedAt?: string; finishedAt?: string;
   seconds?: number; secondsSoFar?: number;
   waitingFor?: string | null; // queued: the job ahead of it in this studio

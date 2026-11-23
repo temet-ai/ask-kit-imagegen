@@ -19,6 +19,8 @@ whether a job is still running.
   attached images as `-i`. The request goes in on stdin.
 - Reads `$CODEX_HOME/generated_images/<thread>/` when the studio did not say where it saved.
 - Writes `~/.local/state/ask-kit-imagegen/` (studios, jobs, Codex events, history) and image files.
+- Writes bounded completion reviews to ask-kit's `imagegen/outcomes.jsonl` journal, including
+  when the submitting ask has already returned. `ASK_KIT_STATE` selects that journal's root.
 
 ## Rebuild it from an empty folder
 

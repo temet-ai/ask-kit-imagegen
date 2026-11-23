@@ -44,7 +44,8 @@ Use scripts.run("library", {action:...}) or the library API for this work.
   Out is relative to the caller's folder; when omitted, report the studio's saved image path.
 - Set transparent:true when the caller asks for alpha/cutouts, false for explicitly opaque output;
   otherwise omit it. Pass exact dimensions as size:"WIDTHxHEIGHT" for machine checking.
-- Queue once, then call await imagegen.wait(id,55) in separate cells until done/failed. If still
+- Queue once with scripts.run("make", options), then use scripts.run("wait", {id,seconds:55})
+  in separate cells until done/failed. The scripts preserve review results in the ask journal. If still
   running after about four minutes, return the id and status. The detached runner continues.
   Never resubmit an uncertain job or automatically retry a quota, login or tool-availability error.
 - Several requested assets need separate jobs. Preserve a shared brief and explicitly reference
