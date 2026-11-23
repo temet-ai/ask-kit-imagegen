@@ -1,0 +1,167 @@
+{
+  "date": "2026-11-23",
+  "kind": "Reference-library integration smoke check; not a before/after quality benchmark",
+  "offlineTests": {
+    "command": "node --test tests/*.test.mjs",
+    "passed": 38,
+    "failed": 0
+  },
+  "vendoredSources": {
+    "sources": 2,
+    "workflows": 6,
+    "verifiedFiles": 127
+  },
+  "kitChecks": [
+    "ask-kit code investigation",
+    "ask-kit web source/licence investigation",
+    "ask-kit tests regression run",
+    "imagegen workflows and doctor scripts",
+    "imagegen library create/add/style/sheet scripts",
+    "read-only imagegen ask recovered area and allowed reference traits",
+    "imagegen make and wait scripts with a real Codex image_gen job"
+  ],
+  "live": {
+    "id": "img-mwt90o8o-f89a",
+    "request": {
+      "prompt": "An editorial cover illustration of a single fern frond, finely engraved cocoa-brown linework with small brass-gold accents on light cream paper. Use the library image only for its cocoa and brass palette. No lighthouse, no icon-style rounded object, no words, no border. One landscape image with the whole fern visible.",
+      "size": "16:9",
+      "transparent": false,
+      "maxAttempts": 1,
+      "area": "reference-check",
+      "workflow": "cover"
+    },
+    "status": "done",
+    "attempts": 1,
+    "validation": {
+      "format": "PNG",
+      "width": 1664,
+      "height": 936,
+      "hasAlpha": false,
+      "hasTransparency": false,
+      "fullyTransparent": false,
+      "bytes": 2682456,
+      "sha256": "61b6b22f5d05d670858f851301212389926d7e8987964d0846111d8d76b99c3e",
+      "conformed": {
+        "conformed": true,
+        "original": [
+          1672,
+          941
+        ],
+        "cropped": [
+          4,
+          2,
+          4,
+          3
+        ],
+        "resizedTo": null,
+        "upscaled": false
+      }
+    },
+    "review": {
+      "status": "pass",
+      "checks": [
+        {
+          "criterion": "Single complete fern",
+          "status": "pass",
+          "detail": "One connected frond; stem base, terminal tip and leaflets are visible."
+        },
+        {
+          "criterion": "Landscape composition",
+          "status": "pass",
+          "detail": "The specimen spans the landscape diagonally without clipping."
+        },
+        {
+          "criterion": "Engraved style and palette",
+          "status": "pass",
+          "detail": "Fine brown contours and hatching with small brass-gold vein accents on light cream paper."
+        },
+        {
+          "criterion": "Reference limited to palette",
+          "status": "pass",
+          "detail": "No lighthouse, architecture, rounded icon composition or sculpted rendering."
+        },
+        {
+          "criterion": "Excluded content",
+          "status": "pass",
+          "detail": "No visible words, border, watermark or extra objects."
+        },
+        {
+          "criterion": "Opaque background",
+          "status": "pass",
+          "detail": "Cream paper fills the canvas; inspection confirmed no transparency."
+        }
+      ],
+      "warnings": []
+    },
+    "prompt": "Use case: stylized-concept\nAsset type: editorial cover illustration, one landscape image, 16:9.\nScene/backdrop: opaque light cream paper with a quiet, subtle natural paper grain.\nSubject: exactly one complete fern frond, from the bare base of its stem to its delicate terminal tip. Fine branching veins and many finely divided leaflets, with clear spacing and a graceful natural curve.\nStyle/medium: finely engraved botanical illustration in cocoa-brown ink; delicate controlled linework and fine hatching, with small restrained brass-gold accents integrated into a few veins and leaflet details. Flat printed artwork with exquisite engraved detail.\nComposition/framing: a single large, legible specimen arranged on a gentle diagonal across the landscape page. The entire fern is visible, all leaflets and both ends comfortably inside the canvas, surrounded by clean cream breathing room. Calm editorial composition, no reserved title block.\nInput image: Image 1 is ONLY a palette reference. REQUIRED: borrow its warm cocoa-brown and aged brass-gold hues, using cocoa for the engraved lines and brass for small accents. Do not borrow its subject, composition, background, materials, lighting or rendering style. This is a new botanical illustration.\nConstraints: no lighthouse, architecture, rounded icon-style object, 3D rendering, sculpted volume, dramatic shadows, extra fronds, detached leaves, extra objects, decorative ornaments or border. No words, lettering, labels, numbers, signature, watermark or palette swatches. Keep the background light cream and opaque.",
+    "referenceUse": [
+      {
+        "reference": "ref-5e44f633-463a-493b-a284-71b950835f5c",
+        "traits": "Warm cocoa brown and brass gold only."
+      }
+    ],
+    "observations": [
+      "Small gold accents along veins complement the brown engraving without dominating it.",
+      "Diagonal placement keeps the whole specimen visible in the landscape composition."
+    ],
+    "libraryResult": {
+      "area": "reference-check",
+      "reference": "ref-img-mwt90o8o-f89a",
+      "revision": 4
+    },
+    "libraryError": null,
+    "guidanceRevision": "b1d29357e91eff99d52f2a53436bede8a4d50f4588b7e41ae4f80094942e4c24",
+    "seconds": 273
+  },
+  "journal": {
+    "events": [
+      {
+        "seq": 1,
+        "type": "reference",
+        "actor": "user"
+      },
+      {
+        "seq": 2,
+        "type": "style",
+        "actor": "user"
+      },
+      {
+        "seq": 3,
+        "type": "reference",
+        "actor": "studio"
+      },
+      {
+        "seq": 4,
+        "type": "generation",
+        "actor": "studio"
+      }
+    ],
+    "inputRevision": 2,
+    "inputReferences": [
+      "ref-5e44f633-463a-493b-a284-71b950835f5c"
+    ],
+    "outputStatus": "candidate"
+  },
+  "workflow": {
+    "id": "cover",
+    "skill": "baoyu-cover-image",
+    "repository": "https://github.com/JimLiu/baoyu-skills",
+    "commit": "bf1ff076e25f8da4a339eb1c8cf03361fea5ea4c",
+    "digest": "ade169ed736ca268ed9876825645dddb4608f845e5ca0863d44f78e5a9947f6c"
+  },
+  "upstreamResourcesRead": [
+    "baoyu/skills/baoyu-cover-image/SKILL.md",
+    "baoyu/skills/baoyu-cover-image/references/types.md",
+    "baoyu/skills/baoyu-cover-image/references/palettes/earth.md",
+    "baoyu/skills/baoyu-cover-image/references/renderings/hand-drawn.md",
+    "baoyu/skills/baoyu-cover-image/references/dimensions/text.md",
+    "baoyu/skills/baoyu-cover-image/references/dimensions/mood.md",
+    "baoyu/skills/baoyu-cover-image/references/workflow/prompt-template.md",
+    "baoyu/skills/baoyu-cover-image/references/workflow/reference-images.md"
+  ],
+  "artifacts": {
+    "image": "/tmp/imagegen-library-verification/fern-cover.png",
+    "sheet": "/tmp/imagegen-library-verification/completed-sheet/index.html",
+    "contactSheet": "/tmp/imagegen-library-verification/completed-sheet/references-1.png"
+  }
+}

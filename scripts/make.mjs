@@ -7,6 +7,9 @@ export const meta = {
     out: "where to save it: a file or a folder ending in /, relative to the caller's folder; optional",
     refs: "images that guide the look: comma-separated paths/job ids, or an array of strings or {image, role}; optional",
     context: "relevant project design context; optional",
+    area: "reference area; defaults to studio name",
+    workflow: "auto, general, infographic, cover, article, web, mobile or brand",
+    referenceIds: "library reference IDs selected for this job; comma-separated or array; omit for automatic approved references, [] for none",
     transparent: "true for real alpha, false for opaque; omit when not specified",
     maxAttempts: "1 or 2 generation attempts; default 2",
     use: "where the image will be used; optional", size: "size or shape (square, 16:9, 1536x1024); optional",
@@ -17,12 +20,12 @@ export const meta = {
   example: 'await scripts.run("make", { prompt: "a brass lighthouse icon, flat, no text", out: "assets/" })',
 };
 
-export default async function ({ imagegen }, { prompt, change, image, out, refs, use, size, avoid, context, transparent, maxAttempts, studio = "default", wait = 50 } = {}) {
-  const list = (v) => (Array.isArray(v) ? v : String(v ?? "").split(",")).map((s) => typeof s === "string" ? s.trim() : s).filter(Boolean);
+export default async function ({ imagegen }, { prompt, change, image, out, refs, use, size, avoid, context, transparent, maxAttempts, area, workflow, referenceIds, studio = "default", wait = 50 } = {}) {
+  const list = (v) => (Array.isArray(v) ? v : String(v ?? "").trim().startsWith('[') ? JSON.parse(v) : String(v ?? "").split(",")).map((s) => typeof s === "string" ? s.trim() : s).filter(Boolean);
   if (transparent === "true") transparent = true;
   else if (transparent === "false") transparent = false;
   if (maxAttempts !== undefined) maxAttempts = Number(maxAttempts);
-  const options = { out, refs: list(refs), use, size, avoid, context, transparent, maxAttempts, studio };
+  const options = { out, refs: list(refs), use, size, avoid, context, transparent, maxAttempts, area, workflow, referenceIds: referenceIds === undefined ? undefined : list(referenceIds), studio };
   const job = change
     ? imagegen.edit({ ...options, change, image: image || "last" })
     : imagegen.make({ ...options, prompt });

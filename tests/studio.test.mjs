@@ -275,3 +275,177 @@ test('a size that is still wrong keeps the studio size check and a warning', () 
   assert.equal(r.checks.length, 1);
   assert.ok(r.warnings.some(w => /aspect ratio/.test(w)));
 });
+
+function busyStudio(e) {
+  const state = path.join(e.env.XDG_STATE_HOME, 'ask-kit-imagegen');
+  fs.mkdirSync(path.join(state, 'studios'), { recursive: true });
+  fs.writeFileSync(path.join(state, 'studios/test.json'), JSON.stringify({ name: 'test', thread: 'test-thread', folder: path.join(e.dir, 'images') }));
+  const lock = path.join(state, 'locks/thread-test-thread');
+  fs.mkdirSync(lock, { recursive: true });
+  fs.writeFileSync(path.join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, job: 'img-other' }));
+  return { state, lock };
+}
+
+test('a busy studio forks its thread instead of queueing', async () => {
+  const e = environment('fork');
+  busyStudio(e);
+  const j = await run(e, 'make', { prompt: 'A second frame' });
+  assert.equal(j.status, 'done');
+  assert.equal(j.route, 'fork');
+  const argv = JSON.parse(fs.readFileSync(path.join(e.dir, 'argv.json')));
+  assert.ok(argv.includes('fork') && argv.includes('test-thread'));
+});
+
+test('an edit on an older fork reloads guidance even when the main thread is current', async () => {
+  const e = environment('fork-guidance');
+  const first = await run(e);
+  const state = path.join(e.env.XDG_STATE_HOME, 'ask-kit-imagegen');
+  fs.writeFileSync(path.join(state, 'jobs/img-original.json'), JSON.stringify({ thread:'older-fork' }));
+  fs.appendFileSync(path.join(state, 'history.jsonl'), JSON.stringify({ thread:'older-fork', guidanceRevision:'old' }) + '\n');
+  const j = await run(e, 'edit', { image:'img-original', change:'Keep this design' });
+  assert.equal(j.status, 'done');
+  assert.equal(j.baseThread, 'older-fork');
+  assert.equal(j.guidanceRevision, first.guidanceRevision);
+  assert.ok(fs.readFileSync(path.join(e.dir, 'input.txt'), 'utf8').includes('new or changed'));
+});
+
+test('a studio at its parallel limit queues on the thread instead of forking', async () => {
+  const e = environment('cap');
+  const { state, lock } = busyStudio(e);
+  fs.mkdirSync(path.join(state, 'jobs'), { recursive: true });
+  for (let i = 0; i < 4; i++) fs.writeFileSync(path.join(state, `jobs/img-run${i}.json`), JSON.stringify({ id: `img-run${i}`, studio: 'test', status: 'running', runnerPid: process.pid }));
+  setTimeout(() => {
+    fs.rmSync(lock, { recursive: true, force: true });
+    fs.rmSync(path.join(state, 'jobs/img-run0.json'));
+  }, 1500);
+  const j = await run(e, 'make', { prompt: 'A fifth frame' });
+  assert.equal(j.status, 'done');
+  assert.equal(j.route, 'resume');
+  assert.ok(JSON.parse(fs.readFileSync(path.join(e.dir, 'argv.json'))).includes('resume'));
+});
+
+test('a free edit thread still waits when all studio slots are occupied', async () => {
+  const e = environment('cap-free-thread');
+  const { state, lock } = busyStudio(e);
+  fs.rmSync(lock, { recursive: true });
+  const { jobFile } = jobFiles(e);
+  for (let i = 0; i < 4; i++) fs.writeFileSync(path.join(state, `jobs/img-run${i}.json`), JSON.stringify({ id: `img-run${i}`, studio: 'test', status: 'running', runnerPid: process.pid }));
+  const child = spawn(process.execPath, ['runner.mjs', jobFile], { env: e.env, stdio: 'ignore' });
+  const finished = new Promise(resolve => child.on('close', resolve));
+  try {
+    for (let i = 0; i < 100; i++) {
+      const j = JSON.parse(fs.readFileSync(jobFile));
+      if (j.waitingFor || j.status !== 'queued') break;
+      await new Promise(r => setTimeout(r, 20));
+    }
+    assert.equal(JSON.parse(fs.readFileSync(jobFile)).status, 'queued');
+    assert.equal(fs.existsSync(path.join(e.dir, 'argv.json')), false);
+    fs.rmSync(path.join(state, 'jobs/img-run0.json'));
+    await finished;
+    assert.equal(JSON.parse(fs.readFileSync(jobFile)).status, 'done');
+  } finally { child.kill('SIGTERM'); await finished; }
+});
+
+test('simultaneous submissions reserve at most four studio slots', async () => {
+  const e = environment('burst', 'hang');
+  const { state, lock } = busyStudio(e);
+  fs.rmSync(lock, { recursive: true });
+  const { job: template } = jobFiles(e);
+  fs.rmSync(path.join(state, 'jobs', `${template.id}.json`));
+  const children = [], files = [], finished = [];
+  try {
+    for (let i = 0; i < 8; i++) {
+      const file = path.join(state, `jobs/img-burst-${i}.json`);
+      fs.writeFileSync(file, JSON.stringify({ ...template, id: `img-burst-${i}`, target: path.join(e.dir, `images/${i}.png`) }));
+      const child = spawn(process.execPath, ['runner.mjs', file], { env: e.env, stdio: 'ignore' });
+      children.push(child); files.push(file); finished.push(new Promise(resolve => child.on('close', resolve)));
+    }
+    let jobs;
+    for (let i = 0; i < 250; i++) {
+      jobs = files.map(file => JSON.parse(fs.readFileSync(file)));
+      assert.ok(jobs.filter(j => j.status === 'running').length <= 4);
+      if (jobs.every(j => j.status === 'running' || j.waitingFor)) break;
+      await new Promise(r => setTimeout(r, 20));
+    }
+    assert.equal(jobs.filter(j => j.status === 'running').length, 4);
+    assert.equal(jobs.filter(j => j.status === 'queued').length, 4);
+  } finally {
+    for (const child of children) child.kill('SIGTERM');
+    await Promise.all(finished);
+  }
+});
+
+test('last freezes the source thread as well as the input image before queueing', async () => {
+  const e = environment('last-thread');
+  const { state, lock } = busyStudio(e);
+  const jobs = path.join(state, 'jobs'); fs.mkdirSync(jobs, { recursive: true });
+  for (let i = 0; i < 4; i++) fs.writeFileSync(path.join(jobs, `img-run${i}.json`), JSON.stringify({ id: `img-run${i}`, studio: 'test', status: 'running', runnerPid: process.pid }));
+  fs.writeFileSync(path.join(state, 'history.jsonl'), JSON.stringify({ id: 'img-old', studio: 'test', file: png, thread: 'original-thread' }) + '\n');
+  const queued = spawnSync(process.execPath, ['--input-type=module', '-e', `import {make} from './imagegen.mjs'; console.log(JSON.stringify(make({act:true}).edit({studio:'test',image:'last',change:'Keep the original design'})));`], { env: e.env, encoding: 'utf8' });
+  assert.equal(queued.status, 0, queued.stderr);
+  const id = JSON.parse(queued.stdout).id;
+  const file = path.join(jobs, `${id}.json`);
+  const submitted = JSON.parse(fs.readFileSync(file));
+  assert.equal(submitted.sourceThread, 'original-thread');
+  fs.appendFileSync(path.join(state, 'history.jsonl'), JSON.stringify({ id: 'img-new', studio: 'test', file: png, thread: 'unrelated-thread' }) + '\n');
+  fs.rmSync(lock, { recursive: true });
+  fs.rmSync(path.join(jobs, 'img-run0.json'));
+  for (let i = 0; i < 200; i++) {
+    if (['done', 'failed'].includes(JSON.parse(fs.readFileSync(file)).status)) break;
+    await new Promise(r => setTimeout(r, 30));
+  }
+  const done = JSON.parse(fs.readFileSync(file));
+  assert.equal(done.status, 'done');
+  assert.equal(done.baseThread, 'original-thread');
+  assert.equal(done.thread, 'original-thread');
+  assert.ok(JSON.parse(fs.readFileSync(path.join(e.dir, 'argv.json'))).includes('original-thread'));
+  const read = spawnSync(process.execPath, ['--input-type=module', '-e', `import {make} from './imagegen.mjs'; console.log(JSON.stringify(make().job(${JSON.stringify(id)})));`], { env: e.env, encoding: 'utf8' });
+  assert.equal(read.status, 0, read.stderr);
+  assert.equal(JSON.parse(read.stdout).baseThread, 'original-thread');
+  assert.equal(JSON.parse(read.stdout).route, 'resume');
+});
+
+test('studio busy checks include active jobs older than the recent-job page', () => {
+  const e = environment('older-busy');
+  const { state } = busyStudio(e);
+  const jobs = path.join(state, 'jobs'); fs.mkdirSync(jobs, { recursive: true });
+  fs.writeFileSync(path.join(jobs, 'img-active.json'), JSON.stringify({ id:'img-active', studio:'test', status:'running', runnerPid:process.pid, queuedAt:'2026-01-01T00:00:00Z' }));
+  for (let i = 0; i < 50; i++) fs.writeFileSync(path.join(jobs, `img-done-${i}.json`), JSON.stringify({ id:`img-done-${i}`, studio:'test', status:'done', queuedAt:'2026-01-02T00:00:00Z' }));
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', `import assert from 'node:assert/strict'; import {make} from './imagegen.mjs'; const api=make({act:true}); assert.deepEqual(api.studios()[0].busyWith,['img-active']); assert.throws(()=>api.reset({studio:'test'}),/busy with img-active/);`], { env:e.env, encoding:'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test('queued area references reach the worker with a pinned workflow and journalled output', async () => {
+  const e = environment('library-context');
+  const code = `import fs from 'node:fs'; import {make} from './imagegen.mjs';
+    const api=make({settings:{IMAGES_DIR:process.env.TEST_DIR+'/images'},cwd:process.env.TEST_DIR,act:true});
+    api.library.createArea({name:'botanical'});
+    const ref=api.library.addReference({area:'botanical',image:process.env.FIXTURE,role:'palette',notes:'Warm paper only',status:'approved'});
+    api.library.setStyle({area:'botanical',keep:['fine ink'],workflow:'cover'});
+    const j=api.make({prompt:'A fern cover',area:'botanical',studio:'plants',maxAttempts:1});
+    api.library.feedback({area:'botanical',reference:ref.id,verdict:'rejected',note:'Future jobs should avoid this'});
+    const done=await api.wait(j.id,15);
+    const beforeReset=api.library.area('botanical'); api.reset({studio:'plants'});
+    console.log(JSON.stringify({done,ref,beforeReset,afterReset:api.library.area('botanical'),journal:api.library.journal({area:'botanical'})}));`;
+  const result = await new Promise((resolve,reject)=>{
+    const child=spawn(process.execPath,['--input-type=module','-e',code],{env:e.env,stdio:'pipe'});
+    let out='',err='';child.stdout.on('data',d=>out+=d);child.stderr.on('data',d=>err+=d);
+    child.on('error',reject);child.on('close',code=>code?reject(new Error(err)):resolve(JSON.parse(out)));
+  });
+  assert.equal(result.done.status,'done');assert.equal(result.done.libraryError,undefined);
+  assert.equal(result.done.library.revision,2);assert.equal(result.done.workflow.id,'cover');
+  assert.ok(result.done.workflow.commit);assert.ok(result.done.libraryResult.reference);
+  const contract=JSON.parse(fs.readFileSync(path.join(e.dir,'input.txt'),'utf8').split('Job data:\n\n')[1]);
+  assert.equal(contract.areaLibrary.references[0].id,result.ref.id);
+  assert.equal(contract.areaLibrary.references[0].status,'approved');
+  assert.equal(contract.areaLibrary.references[0].role,'palette');
+  assert.deepEqual(contract.areaLibrary.style.keep,['fine ink']);
+  assert.equal(contract.workflow.id,'cover');
+  assert.ok(fs.existsSync(contract.areaLibrary.references[0].file));
+  const argv=JSON.parse(fs.readFileSync(path.join(e.dir,'argv.json')));
+  assert.ok(argv.includes(contract.areaLibrary.references[0].file));
+  assert.deepEqual(result.afterReset,result.beforeReset);
+  const output=result.afterReset.references.find(r=>r.job===result.done.id);assert.equal(output.status,'candidate');
+  const event=result.journal.find(e=>e.type==='generation');
+  assert.equal(event.data.usedRevision,2);assert.deepEqual(event.data.usedReferences,[result.ref.id]);
+});

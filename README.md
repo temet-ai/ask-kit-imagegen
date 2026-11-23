@@ -14,10 +14,22 @@ ask: the last image, but at night with the beam lit
 ask: which images did we make of the lighthouse, and where are they?
 ```
 
+## Growing a reference library
+
+Each interest or project can have a persistent area of reference images, style guidance and user
+feedback. New outputs enter as candidates; approved references inform later generations. The
+kit journals the prompt, selected references, area revision, workflow and review, and exports
+HTML/PNG reference sheets. Areas survive studio resets.
+
+Six pinned upstream skills provide infographic, cover, article, web, mobile and brand workflows.
+Their files and licences are bundled, with an adapter connecting their methods to this kit.
+See the [reference-library guide](docs/reference-library.md) for the workflow and commands, and
+[source credits](vendor/README.md) for provenance.
+
 ## Setup
 
 Requires Node.js 18+, Python 3 with Pillow, and a current Codex CLI logged in using ChatGPT.
-Codex must provide `image_generation` and `--output-schema` for both `exec` and `exec resume`.
+Codex must provide `image_generation` and `--output-schema` for `exec`, `exec resume` and `exec fork`.
 The official imagegen skill must be installed. No OpenAI API key is used.
 
 Check the installation without generating an image:
@@ -38,16 +50,17 @@ on the PATH used by ask-kit. The kit never changes global Codex settings or auth
 ## How jobs work
 
 - Each request is a job. A detached runner sends it to the studio with `codex exec resume`, so it
-  continues if the ask that submitted it stops waiting. A studio runs one job at a time.
+  continues if the ask that submitted it stops waiting. A busy studio forks its Codex thread for the next job, so up to 4 jobs per studio run at once and each one still has the studio's style, references and guidance in context; a fifth queues. An edit of `last` or of a job id continues the thread that made that image. Send related images to one studio rather than one studio per image.
+- To keep an object consistent across shots, make one master view, then ask for each other view as an edit of it in the same studio ("the same ship, now side view"). That holds a design better than a multi-view sheet.
 - Reference files are copied when submitted. Queued edits use those copies even if the source
   later changes. `last` resolves when the request is submitted, not after jobs ahead of it finish.
 - Images live in `IMAGES_DIR/<studio>/` (default `~/Pictures/imagegen`). An optional `out` gets a
   second copy. Existing destinations are preserved using `-v2`, `-v3`, etc., with exclusive writes.
 - Output copies are encoded for their extension. PNG and WebP preserve alpha. A JPEG destination
   for a transparent image, or a GIF conversion that would reduce colours, returns a delivery
-  warning and keeps the original. The kit does not resize or crop to hide a dimension mismatch.
-- Every request reloads the bundled studio skill. Changes to the installed imagegen skill and
-  prompting references are identified by a content hash, including for existing studios.
+  warning and keeps the original. Near-matching dimensions are conformed as described below.
+- Each job includes a guidance revision. The studio rereads its skills and prompting references
+  when that content hash changes, or when they are no longer in its context.
 - Caller ancestor `AGENTS.md`/`AGENTS.override.md` paths and global Codex instructions are passed
   to the studio so it can read applicable project and taste guidance. Additional design context
   can be supplied with `context`.
@@ -60,7 +73,7 @@ plan's image quota. History, job status, studios and doctor are read-only.
 ## Request options
 
 Both `make` and `edit` accept `out`, `refs`, `use`, `size`, `avoid`, `context`, `transparent`,
-`maxAttempts` (1 or 2, default 2) and `studio`. `make` needs `prompt`; `edit` needs `change` and
+`maxAttempts` (1 or 2, default 2), `studio`, `area`, `referenceIds` and `workflow`. `make` needs `prompt`; `edit` needs `change` and
 accepts `image` (path, job id or `last`). The configured Codex agent model is preserved.
 
 ```js
@@ -107,10 +120,11 @@ a server-side image-tool quota. The kit does not claim to control the hidden ima
 | Key | Meaning | Default |
 |---|---|---|
 | `IMAGES_DIR` | Studio image folders | `~/Pictures/imagegen` |
+| `LIBRARY_DIR` | Persistent references, style and journal | State directory + `/library` |
 | `CALLER_DIR` | Base folder for relative paths | Caller folder |
 
 State is under `$XDG_STATE_HOME/ask-kit-imagegen/`, or `~/.local/state/ask-kit-imagegen/`.
-Scripts: `make`, `wait`, `recent`, `studios`, `doctor`. For example:
+Scripts: `make`, `wait`, `recent` (one line per image; `id=` for one full record), `cancel`, `studios`, `doctor`, `library`, `workflows`. For example:
 `ask-kit run imagegen recent search=lighthouse`. A direct `make` run spends image quota.
 
 Run offline regression checks with `node --test tests/*.test.mjs`; they use a fake Codex process

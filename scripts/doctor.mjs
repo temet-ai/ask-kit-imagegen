@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { inspectImage, installedSkill } from '../lib/studio.mjs';
+import { workflows, selectWorkflow } from '../lib/workflows.mjs';
 
 export const meta = {
   purpose: 'Check Codex login, image_generation, structured output support, installed imagegen skill and Pillow without generating an image.',
@@ -21,13 +22,18 @@ export default function () {
   const features = spawnSync('codex', ['features', 'list'], { encoding: 'utf8', timeout: 15_000 });
   const imageFeature = (features.stdout || '').split('\n').find(s => /^image_generation\s/.test(s)) || '';
   checks.push({ name: 'image_generation', ok: features.status === 0 && /\btrue\s*$/.test(imageFeature), detail: imageFeature || 'image_generation was not found; update Codex or enable the feature' });
-  for (const args of [['exec', '--help'], ['exec', 'resume', '--help']]) {
+  for (const args of [['exec', '--help'], ['exec', 'resume', '--help'], ['exec', 'fork', '--help']]) {
     const r = spawnSync('codex', args, { encoding: 'utf8', timeout: 15_000 });
-    checks.push({ name: args.slice(0, -1).join(' ') + ' schema', ok: r.status === 0 && r.stdout.includes('--output-schema'), detail: 'Requires --output-schema for new and resumed studios' });
+    checks.push({ name: args.slice(0, -1).join(' ') + ' schema', ok: r.status === 0 && r.stdout.includes('--output-schema'), detail: 'Requires --output-schema for new, resumed and forked studios' });
   }
   for (const [name, fn] of [['imagegen skill', installedSkill], ['Pillow', () => inspectImage()]]) {
     try { checks.push({ name, ok: true, detail: fn() }); }
     catch (e) { checks.push({ name, ok: false, detail: e.message }); }
   }
+  try {
+    const bundled = workflows().filter(w => w.id !== 'general');
+    for (const w of bundled) selectWorkflow({workflow:w.id});
+    checks.push({name:'bundled workflows',ok:true,detail:`${bundled.length} pinned workflows; source hashes verified`});
+  } catch (e) { checks.push({name:'bundled workflows',ok:false,detail:e.message}); }
   return { ok: checks.every(c => c.ok), checks, note: 'Local readiness only; tool availability and remaining image quota are established by a real generation.' };
 }

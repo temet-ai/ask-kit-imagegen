@@ -1,13 +1,13 @@
 // Runs one imagegen job, detached from whoever queued it: node runner.mjs <job.json>.
-// Takes the studio's lock (queueing behind other jobs), sends the request to the studio's Codex
-// thread as one turn (a new thread for a new studio), finds the image, copies it where asked and
-// records it in the history.
+// Reserves studio capacity, resumes or forks a thread under per-thread locks, finds the image,
+// copies it where asked and records it in the history and reference library.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { alive, codexHome, paths, readJson, writeJson } from "./imagegen.mjs";
 
 import { conformImage, inspectImage, parseReply, requestText, responseSchema, reviewResult } from "./lib/studio.mjs";
+import { createLibrary } from "./lib/library.mjs";
 const TURN_LIMIT_MS = 15 * 60_000;
 const QUEUE_LIMIT_MS = 45 * 60_000;
 const jobFile = process.argv[2];
@@ -19,14 +19,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let child = null;
 let cancelling = false;
-let lockDir = null;
-const releaseLock = () => {
-  if (!lockDir) return;
-  const o = readJson(path.join(lockDir, "owner.json"));
-  if (o?.pid === process.pid) fs.rmSync(lockDir, { recursive: true, force: true });
-  lockDir = null;
+const locks = new Set();
+const releaseLock = (dir) => {
+  for (const held of dir ? [dir] : locks) {
+    const o = readJson(path.join(held, "owner.json"));
+    if (o?.pid === process.pid) fs.rmSync(held, { recursive: true, force: true });
+    locks.delete(held);
+  }
 };
-const fail = (error) => { save({ status: "failed", error, finishedAt: now() }); releaseLock(); process.exit(1); };
+function journalResult(result) {
+  if (!job.libraryRoot || !job.request.area || job.kind === "start") return {};
+  try { return {libraryResult:createLibrary({root:job.libraryRoot,act:true}).recordJob({...job,...result})}; }
+  catch (e) { return {libraryError:`The image job is preserved, but its library journal needs repair: ${e.message}`}; }
+}
+const fail = (error) => { const result={status:"failed",error,finishedAt:now()}; save({...result,...journalResult(result)}); releaseLock(); process.exit(1); };
 function stopChild(signal = "SIGTERM") {
   try { if (child?.pid) process.kill(-child.pid, signal); } catch {}
 }
@@ -37,16 +43,18 @@ process.on("SIGTERM", () => {
   setTimeout(() => stopChild("SIGKILL"), 5000).unref();
 });
 
-async function takeLock() {
-  const dir = paths.lock(job.studio);
+const PARALLEL = 4; // jobs running at once in one studio; more queue
+
+/** Take a lock directory. wait=false tries once. Returns true when taken. */
+async function takeLock(dir, { wait = true, what = "the studio" } = {}) {
   fs.mkdirSync(path.dirname(dir), { recursive: true });
   const until = Date.now() + QUEUE_LIMIT_MS;
   for (;;) {
     try {
       fs.mkdirSync(dir);
       writeJson(path.join(dir, "owner.json"), { pid: process.pid, job: job.id, since: now() });
-      lockDir = dir;
-      return;
+      locks.add(dir);
+      return true;
     } catch (e) {
       if (e.code !== "EEXIST") throw e;
       const o = readJson(path.join(dir, "owner.json"));
@@ -54,10 +62,79 @@ async function takeLock() {
       let age;
       try { age = Date.now() - fs.statSync(dir).mtimeMs; } catch (e) { if (e.code === "ENOENT") continue; throw e; }
       if ((o && !alive(o.pid)) || (!o && age > 10_000)) { fs.rmSync(dir, { recursive: true, force: true }); continue; }
+      if (!wait) return false;
       if (o?.job && job.waitingFor !== o.job) save({ waitingFor: o.job });
-      if (Date.now() > until) fail(`waited ${QUEUE_LIMIT_MS / 60_000} minutes for studio ${job.studio}, busy with ${o?.job ?? "another job"}`);
+      if (Date.now() > until) fail(`waited ${QUEUE_LIMIT_MS / 60_000} minutes for ${what}, busy with ${o?.job ?? "another job"}`);
       await sleep(2000);
     }
+  }
+}
+
+/** Jobs of this studio running now (their runner alive), other than this one. */
+function runningInStudio() {
+  const dir = path.dirname(paths.job(job.id));
+  const running = [];
+  for (const f of fs.readdirSync(dir)) {
+    if (!/^img-[^.]+\.json$/.test(f) || f === `${job.id}.json`) continue;
+    const j = readJson(path.join(dir, f));
+    if (j?.studio === job.studio && j.status === "running" && alive(j.runnerPid)) running.push(j.id);
+  }
+  return running;
+}
+
+/** The thread an edit continues: the one that made the image it names, when known. */
+function threadOf(image) {
+  if (!image) return null;
+  if (/^img-[a-z0-9-]+$/.test(image)) return readJson(paths.job(image))?.thread ?? null;
+  if (image === "last" || image === "latest") {
+    try {
+      const rows = fs.readFileSync(paths.history(), "utf8").trim().split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } });
+      // Compatibility with jobs queued before sourceThread was recorded: match the frozen input.
+      const source = job.attach[0]?.source;
+      return rows.filter((h) => h?.studio === job.studio && h.thread && source && (h.file === source || h.copiedTo === source)).at(-1)?.thread ?? null;
+    } catch { return null; }
+  }
+  return null;
+}
+
+function guidanceInThread(thread, studio) {
+  if (thread === studio.thread) return studio.guidanceRevision;
+  try {
+    const rows = fs.readFileSync(paths.history(), "utf8").split("\n").map((line) => { try { return JSON.parse(line); } catch { return null; } });
+    return rows.filter((row) => row?.thread === thread).at(-1)?.guidanceRevision;
+  } catch { return undefined; }
+}
+
+/**
+ * Pick the thread to run on. A new studio makes its first thread once (under the studio lock).
+ * Otherwise the job continues its base thread (the studio's, or for an edit the thread that made
+ * the image) when that thread is free, and forks it when busy, so several jobs run at once and
+ * each still has the studio's style, references and guidance in context.
+ */
+async function chooseThread(studio) {
+  const admission = paths.lock(job.studio);
+  const until = Date.now() + QUEUE_LIMIT_MS;
+  for (;;) {
+    // Reserve capacity while holding the studio lock, before another runner can count jobs.
+    await takeLock(admission, { what: `studio ${job.studio}` });
+    const fresh = readJson(paths.studio(job.studio));
+    if (fresh) Object.assign(studio, fresh);
+    const running = runningInStudio();
+    if (running.length < PARALLEL) {
+      if (!studio.thread) {
+        save({ status: "running" });
+        return { mode: "new" }; // Keep admission locked until the first thread is saved.
+      }
+      const base = (job.kind === "edit" && (job.sourceThread ?? threadOf(job.request.image))) || studio.thread;
+      const resume = await takeLock(paths.lock(`thread-${base}`), { wait: false });
+      save({ status: "running" });
+      releaseLock(admission);
+      return { mode: resume ? "resume" : "fork", base };
+    }
+    save({ waitingFor: running[0] });
+    releaseLock(admission);
+    if (Date.now() > until) fail(`waited ${QUEUE_LIMIT_MS / 60_000} minutes for capacity in studio ${job.studio}`);
+    await sleep(2000);
   }
 }
 
@@ -97,33 +174,39 @@ function newestGenerated(thread, sinceMs) {
 }
 
 try {
-  await takeLock();
   inspectImage();
   for (const a of job.attach) inspectImage(a.file);
-  const started = Date.now();
-  save({ status: "running", startedAt: now(), waitingFor: null, runnerPid: process.pid });
+  save({ runnerPid: process.pid });
 
   const studioFile = paths.studio(job.studio);
   let studio = readJson(studioFile) ?? { name: job.studio, createdAt: now(), thread: null, style: null, folder: job.dir };
   if (job.kind === "start" && job.request.style) studio.style = job.request.style;
-  const isNew = !studio.thread;
+  const route = await chooseThread(studio);
+  const started = Date.now();
+  save({ status: "running", startedAt: now(), waitingFor: null, route: route.mode, baseThread: route.base ?? null });
+  const isNew = route.mode === "new";
   const images = job.attach.flatMap((a) => ["-i", a.file]);
   const common = ["--output-schema", responseSchema, "--json", "--skip-git-repo-check", "-c", 'sandbox_mode="workspace-write"', ...images, "-o", paths.last(job.id)];
-  const args = isNew ? ["exec", "-C", job.dir, ...common, "-"] : ["exec", "resume", ...common, studio.thread, "-"];
-  const guidance = requestText(job, studio);
+  const args = isNew ? ["exec", "-C", job.dir, ...common, "-"]
+    : route.mode === "fork" ? ["exec", "fork", ...common, route.base, "-"]
+    : ["exec", "resume", ...common, route.base, "-"];
+  const guidance = requestText(job, { ...studio, guidanceRevision: guidanceInThread(route.base, studio) });
   save({ guidanceRevision: guidance.revision });
   const r = await runCodex(args, guidance.text, job.dir);
   if (cancelling) fail("cancelled");
 
   const events = readEvents();
-  const thread = studio.thread ?? events.find((e) => e.type === "thread.started")?.thread_id ?? null;
-  if (isNew && thread) { studio = { ...studio, thread }; writeJson(studioFile, studio); }
+  const started_ = events.find((e) => e.type === "thread.started")?.thread_id ?? null;
+  const thread = route.mode === "resume" ? route.base : started_;
+  save({ thread });
+  if (isNew && thread) { studio = { ...readJson(studioFile) ?? studio, thread }; writeJson(studioFile, studio); }
   const usage = events.findLast?.((e) => e.type === "turn.completed")?.usage ?? null;
   let last = "";
   try { last = fs.readFileSync(paths.last(job.id), "utf8"); } catch {}
   if (!last) last = events.filter((e) => e.item?.type === "agent_message").at(-1)?.item?.text ?? "";
   const reply = parseReply(last);
-  if (thread) { studio = { ...studio, thread, guidanceRevision: guidance.revision }; writeJson(studioFile, studio); }
+  // The studio's main thread stays its own; a fork's thread is kept on the job and in the history.
+  if (thread && thread === (readJson(studioFile)?.thread ?? studio.thread)) { studio = { ...readJson(studioFile) ?? studio, guidanceRevision: guidance.revision }; writeJson(studioFile, studio); }
 
   if (job.kind === "start") {
     if (r.code !== 0 || !thread || reply?.ready !== true || !Array.isArray(reply.read) || !reply.read.length) fail(`studio did not confirm readiness: ${reply?.error || last.trim().slice(0, 300) || r.err}`);
@@ -189,12 +272,14 @@ try {
     status: "done", finishedAt: now(), thread, file, copiedTo, usage, validation, review, deliveryError,
     prompt: reply?.prompt ?? null, useCase: reply?.use_case ?? null, attempts: reply?.attempts ?? null,
     checked: reply?.checked ?? null, notes: reply?.notes ?? (reply ? null : "the studio did not send its JSON line; the image is the newest one it generated"),
+    referenceUse:Array.isArray(reply?.reference_use)?reply.reference_use:[], observations:Array.isArray(reply?.style_observations)?reply.style_observations:[],
   };
-  save(done);
+  save({...done,...journalResult(done)});
   fs.appendFileSync(paths.history(), JSON.stringify({
     id: job.id, studio: job.studio, kind: job.kind, at: done.finishedAt, file, copiedTo,
     request: job.request, prompt: done.prompt, useCase: done.useCase, notes: done.notes, thread,
     validation, review, checked: done.checked, attempts: done.attempts, guidanceRevision: guidance.revision,
+    area:job.request.area, libraryResult:job.libraryResult, workflow:job.workflow,
     seconds: Math.round((Date.now() - started) / 1000),
   }) + "\n");
   releaseLock();

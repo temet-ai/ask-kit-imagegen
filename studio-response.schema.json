@@ -1,28 +1,134 @@
 {
-  "type": "object", "additionalProperties": false,
-  "required": ["ready", "read", "file", "use_case", "prompt", "attempts", "checked", "notes", "review", "error"],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ready",
+    "read",
+    "file",
+    "use_case",
+    "prompt",
+    "attempts",
+    "checked",
+    "notes",
+    "review",
+    "error",
+    "reference_use",
+    "style_observations"
+  ],
   "properties": {
-    "ready": {"type": "boolean"},
-    "read": {"type": "array", "items": {"type": "string"}},
-    "file": {"type": ["string", "null"]},
-    "use_case": {"type": ["string", "null"]},
-    "prompt": {"type": ["string", "null"]},
-    "attempts": {"type": "integer", "minimum": 0, "maximum": 2},
-    "checked": {"type": "string"}, "notes": {"type": "string"},
-    "error": {"type": ["string", "null"]},
+    "ready": {
+      "type": "boolean"
+    },
+    "read": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "file": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "use_case": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "prompt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2
+    },
+    "checked": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "review": {
-      "type": "object", "additionalProperties": false, "required": ["status", "checks"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "checks"
+      ],
       "properties": {
-        "status": {"type": "string", "enum": ["pass", "needs_review", "unverified"]},
-        "checks": {"type": "array", "items": {
-          "type": "object", "additionalProperties": false,
-          "required": ["criterion", "status", "detail"],
-          "properties": {
-            "criterion": {"type": "string"},
-            "status": {"type": "string", "enum": ["pass", "fail", "unverified"]},
-            "detail": {"type": "string"}
+        "status": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "needs_review",
+            "unverified"
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "criterion",
+              "status",
+              "detail"
+            ],
+            "properties": {
+              "criterion": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "fail",
+                  "unverified"
+                ]
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
           }
-        }}
+        }
+      }
+    },
+    "reference_use": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reference",
+          "traits"
+        ],
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "traits": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "style_observations": {
+      "type": "array",
+      "items": {
+        "type": "string"
       }
     }
   }

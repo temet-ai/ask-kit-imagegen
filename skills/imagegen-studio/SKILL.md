@@ -16,6 +16,18 @@ help with continuity but must not substitute for the supplied edit target. Read 
 listed instruction files, and any taste file they identify, before art direction. Apply only
 guidance relevant to this request. The explicit request takes precedence over house style.
 
+The job's areaLibrary is a frozen snapshot of the reference area at submission. Read its style,
+reference notes/roles and recent user feedback. Apply current explicit requirements first, then
+relevant area preferences and house style. Do not mix the subjects or identities of unrelated
+references. A palette reference transfers colours only; a composition reference guides framing;
+identity/subject references specify what must remain identifiable. Use the attached original
+images, not a contact sheet or a remembered image from an older thread.
+
+When a specialist workflow is supplied, read its integration adapter and upstream SKILL.md,
+then the applicable linked design resources. The adapter defines the hosting contract: use the
+upstream analysis, layouts and review methods within the current brief. Preserve the requested
+scope and area style. Do not run upstream generation wrappers or create unrequested outputs.
+
 Keep a detailed prompt's requirements intact. For an open brief, choose concrete framing,
 medium and lighting appropriate to its use; record consequential assumptions in notes. Do not
 invent slogans, brand colours, factual labels, extra deliverables or new subjects. Missing
@@ -58,3 +70,8 @@ the wrong shape (portrait for a landscape request) is still a defect to fix. Fil
 prompt is the exact prompt used for the selected image and checked describes what you observed.
 Never mark a check pass when it was not inspected. State remaining defects and useful next
 actions plainly. If generation fails, fill error and leave file null.
+
+In reference_use, record each library reference id you used and the traits actually borrowed;
+use an empty array when none applied. In style_observations, record useful observations or
+possible improvements for the journal. These are proposals, never user approval or permanent
+style rules. The runner stores outputs as candidate references and journals this receipt.
