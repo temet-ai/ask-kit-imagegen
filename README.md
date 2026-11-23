@@ -74,8 +74,12 @@ const job = imagegen.edit({
 ```
 
 String references remain supported. Set `transparent:true` for alpha, `false` for explicitly
-opaque output, or omit it. `size:"WIDTHxHEIGHT"` checks exact dimensions; `"16:9"` and `"square"`
-check proportions. These are requests to the built-in tool, not guaranteed rendering settings.
+opaque output, or omit it. `size` is `"WIDTHxHEIGHT"`, a ratio such as `"16:9"`, or `"square"`.
+The built-in tool picks its own pixel size (1672x941 for 16:9), so the runner fixes the shape
+afterwards: when the image is within 3% of the requested shape it crops a few pixels from the
+edges (centred) and, for exact pixels, resizes. An edit with no `size` is fixed to its input's
+size. An image further off than 3% is left alone and flagged, since cropping it would cut the
+composition. What was done is in `validation.conformed`.
 
 One job returns one image. Submit separate jobs for requested variants or assets; use explicit
 approved references to keep a set consistent. The kit does not expand requests into extra images.

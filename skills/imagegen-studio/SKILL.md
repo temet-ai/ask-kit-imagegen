@@ -34,8 +34,10 @@ statistics or scientific details. If essential facts are missing, return that re
 ## Generate and inspect
 
 One job delivers one image. Use the actual tool's reference mechanism and transparency control.
-Request the stated dimensions or aspect ratio, but do not claim they are enforced by a parameter
-the tool does not expose. Never use the Codex agent model flag to select an image backend.
+Ask for the stated aspect ratio and compose for it. The tool picks its own pixel size; after you
+finish, the runner crops and resizes to the exact requested size when the image is within 3% of
+that shape, trimming a few pixels at the edges, so keep important content off the very edges.
+Never use the Codex agent model flag to select an image backend.
 
 Open the generated file with view_image. Inspect the actual output against the original request,
 using the [review guide](references/review.md). Record observations, including visible failures.
@@ -50,7 +52,9 @@ checking edges and appearance; never deliver it or replace the original with it.
 
 Copy the selected output to the job's absolute target path, preserving alpha. Do not resize,
 crop, repaint, flatten transparency or overwrite inputs to make a check pass. The runner checks
-the file and handles the caller's final destination. Fill the supplied response schema; the
+the file, fixes its exact size and handles the caller's final destination. Do not record checks
+on pixel dimensions or exact aspect ratio: the runner owns those. A composition that is clearly
+the wrong shape (portrait for a landscape request) is still a defect to fix. Fill the supplied response schema; the
 prompt is the exact prompt used for the selected image and checked describes what you observed.
 Never mark a check pass when it was not inspected. State remaining defects and useful next
 actions plainly. If generation fails, fill error and leave file null.

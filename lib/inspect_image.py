@@ -60,6 +60,59 @@ def publish(source, destination):
     raise ValueError('too many existing versions at destination')
 
 
+def parse_shape(spec):
+    """'1024x1024' -> exact pixels; '16:9' or 'square' -> a ratio. Anything else -> None."""
+    import re
+    from fractions import Fraction
+    spec = str(spec or '').strip().lower()
+    if spec == 'square':
+        spec = '1:1'
+    m = re.fullmatch(r'(\d+)\s*[x\u00d7]\s*(\d+)', spec)
+    if m:
+        return dict(width=int(m[1]), height=int(m[2]), ratio=Fraction(int(m[1]), int(m[2])))
+    m = re.fullmatch(r'(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)', spec)
+    if m:
+        return dict(ratio=Fraction(m[1]) / Fraction(m[2]))
+    return None
+
+
+TOLERANCE = 0.03  # further off than this is a composition miss, not rounding: leave it and report it
+
+
+def conform(source, spec):
+    """Crop (centred) and, for exact pixels, resize the image in place to the requested shape.
+    Only within TOLERANCE of the requested ratio; the image stays as it is otherwise."""
+    from PIL import Image
+    shape = parse_shape(spec)
+    info = inspect(source)
+    w, h = info['width'], info['height']
+    if not shape:
+        return dict(conformed=False, reason=f'no shape to conform to in {spec!r}', validation=info)
+    ratio = shape['ratio']
+    off = abs((w / h) / float(ratio) - 1)
+    if off > TOLERANCE:
+        return dict(conformed=False, reason=f'{w}x{h} is {off:.0%} off {spec}; not cropped, that would cut the composition', validation=info)
+    # Largest whole-pixel box of exactly this ratio inside the image.
+    p, q = ratio.numerator, ratio.denominator
+    k = min(w // p, h // q)
+    if k == 0:
+        return dict(conformed=False, reason=f'{w}x{h} is too small for an exact {p}:{q} box', validation=info)
+    cw, ch = p * k, q * k
+    want = (shape.get('width', cw), shape.get('height', ch))
+    if (cw, ch) == (w, h) and want == (w, h):
+        return dict(conformed=False, reason='already exact', validation=info)
+    left, top = (w - cw) // 2, (h - ch) // 2
+    with Image.open(source) as im:
+        im.load()
+        out = im.crop((left, top, left + cw, top + ch))
+        if (cw, ch) != want:
+            out = out.resize(want, Image.Resampling.LANCZOS)
+        out.save(source, format='PNG')
+    after = inspect(source)
+    return dict(conformed=True, original=[w, h], cropTo=[cw, ch], cropped=[left, top, w - cw - left, h - ch - top],
+                resizedTo=list(want) if (cw, ch) != want else None, upscaled=want[0] > cw, validation=after)
+
+
 def preview(source, destination):
     """Opaque light/dark inspection sheet; never modifies the source or delivery image."""
     from PIL import Image
@@ -83,6 +136,7 @@ def main():
     parser.add_argument('image', nargs='?')
     parser.add_argument('--publish')
     parser.add_argument('--preview', help='write an opaque light/dark QA sheet to a new PNG; never deliver it as the result')
+    parser.add_argument('--conform', help="crop/resize the image in place to WxH, W:H or square (within 3%% of that shape only)")
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
     if args.check:
@@ -93,6 +147,9 @@ def main():
     else:
         if args.publish and args.preview:
             parser.error('choose --publish or --preview')
+        if args.conform:
+            print(json.dumps(conform(args.image, args.conform)))
+            return
         result = preview(args.image, args.preview) if args.preview else publish(args.image, args.publish) if args.publish else inspect(args.image)
     print(json.dumps(result))
 

@@ -9,10 +9,11 @@ edit invariants, style/avoid items and edge quality. Omit criteria irrelevant to
 For text, transcribe what you can actually read and compare it to the request. For an edit,
 compare to the supplied original. Do not infer successful preservation from memory alone.
 
-The runner independently measures dimensions, format and alpha. You may use the supplied
-inspection helper before deciding whether to spend the remaining correction attempt. A missing
-alpha channel, wrong exact dimensions or unreadable required label is a defect, even when the
-image is otherwise attractive. Record an unverified check when you cannot establish the result.
+The runner independently measures format and alpha, and fixes exact dimensions itself (it crops
+and resizes an image within 3% of the requested shape), so leave pixel size out of your checks.
+You may use the supplied inspection helper before deciding whether to spend the remaining
+correction attempt. A missing alpha channel, the wrong orientation or an unreadable required
+label is a defect, even when the image is otherwise attractive. Record an unverified check when you cannot establish the result.
 
 Set review.status to pass only when every recorded requirement passes. A remaining failure or
 uncertain requirement is needs_review. If no visual inspection was possible, use unverified.

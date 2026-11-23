@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { inspectImage, inspector, parseReply, reviewResult } from '../lib/studio.mjs';
+import { conformImage, inspectImage, inspector, parseReply, reviewResult } from '../lib/studio.mjs';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'imagegen-tests-'));
 const png = path.join(root, 'fixture.png');
@@ -217,4 +217,61 @@ test('cancelling a running worker stops Codex and releases the studio lock', asy
   assert.equal(j.status, 'failed'); assert.equal(j.error, 'cancelled');
   assert.equal(fs.existsSync(path.join(e.env.XDG_STATE_HOME, 'ask-kit-imagegen/locks/test')), false);
   assert.throws(() => process.kill(codexPid, 0), /ESRCH/);
+});
+
+function sized(name, w, h) {
+  const f = path.join(root, name);
+  const r = spawnSync('python3', ['-c', 'from PIL import Image; import sys; Image.new("RGB",(int(sys.argv[2]),int(sys.argv[3])),(90,60,30)).save(sys.argv[1])', f, String(w), String(h)]);
+  assert.equal(r.status, 0);
+  return f;
+}
+
+test('conform crops a near-16:9 image to an exact 16:9 box', () => {
+  const c = conformImage(sized('near169.png', 1672, 941), '16:9');
+  assert.equal(c.conformed, true);
+  assert.deepEqual([c.validation.width, c.validation.height], [1664, 936]);
+});
+
+test('conform crops then resizes to exact pixels', () => {
+  const c = conformImage(sized('near-square.png', 1254, 1250), '1024x1024');
+  assert.equal(c.conformed, true);
+  assert.deepEqual([c.validation.width, c.validation.height], [1024, 1024]);
+});
+
+test('conform leaves a clearly wrong shape alone', () => {
+  const f = sized('landscape.png', 1600, 900);
+  const c = conformImage(f, 'square');
+  assert.equal(c.conformed, false);
+  assert.deepEqual([inspectImage(f).width, inspectImage(f).height], [1600, 900]);
+});
+
+test('once the size is exact, the studio size checks no longer hold the review back', () => {
+  const reply = { checked: 'looked', review: { status: 'needs_review', checks: [
+    { criterion: 'Subject', status: 'pass', detail: 'tug and jellyfish present' },
+    { criterion: 'Exact 16:9 aspect ratio', status: 'fail', detail: '1672x941 is not exact' },
+  ] } };
+  const v = { width: 1664, height: 936, hasTransparency: false, fullyTransparent: false };
+  const r = reviewResult(reply, v, { size: '16:9' }, []);
+  assert.equal(r.status, 'pass');
+  assert.equal(r.checks.length, 1);
+});
+
+test('content failures still need review after size checks are dropped', () => {
+  const reply = { checked: 'looked', review: { status: 'needs_review', checks: [
+    { criterion: 'Tendrils longer than ship', status: 'fail', detail: 'shorter than the ship' },
+    { criterion: 'Aspect ratio', status: 'fail', detail: 'not exact' },
+  ] } };
+  const r = reviewResult(reply, { width: 1664, height: 936 }, { size: '16:9' }, []);
+  assert.equal(r.status, 'needs_review');
+  assert.deepEqual(r.checks.map(c => c.criterion), ['Tendrils longer than ship']);
+});
+
+test('a size that is still wrong keeps the studio size check and a warning', () => {
+  const reply = { checked: 'looked', review: { status: 'needs_review', checks: [
+    { criterion: 'Aspect ratio', status: 'fail', detail: 'portrait' },
+  ] } };
+  const r = reviewResult(reply, { width: 900, height: 1600 }, { size: '16:9' }, []);
+  assert.equal(r.status, 'needs_review');
+  assert.equal(r.checks.length, 1);
+  assert.ok(r.warnings.some(w => /aspect ratio/.test(w)));
 });

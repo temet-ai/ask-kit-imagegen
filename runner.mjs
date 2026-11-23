@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { alive, codexHome, paths, readJson, writeJson } from "./imagegen.mjs";
 
-import { inspectImage, parseReply, requestText, responseSchema, reviewResult } from "./lib/studio.mjs";
+import { conformImage, inspectImage, parseReply, requestText, responseSchema, reviewResult } from "./lib/studio.mjs";
 const TURN_LIMIT_MS = 15 * 60_000;
 const QUEUE_LIMIT_MS = 45 * 60_000;
 const jobFile = process.argv[2];
@@ -163,6 +163,19 @@ try {
   if (!file) fail(`no valid image came back (codex exit ${r.code}). ${warnings.join(" ")} Codex said: ${last.trim().slice(0, 400) || r.err.trim().slice(-600) || "(nothing)"}`);
   if (r.code !== 0) warnings.push(`Codex exited ${r.code}; the saved image was recovered, but the turn did not finish normally.`);
   if (!reply?.prompt || !Number.isInteger(reply?.attempts) || reply.attempts < 1 || reply.attempts > (job.request.maxAttempts ?? 2)) warnings.push("The generation receipt is incomplete or exceeds the attempt limit.");
+  // Fix the shape: image_gen picks its own pixel size (1672x941 for 16:9), and an edit can come
+  // back a pixel off its input. Within 3% the runner crops and resizes; further off stays a miss.
+  const editTarget = job.kind === "edit" ? job.attach.find((a) => a.role === "edit target") : null;
+  let shape = String(job.request.size ?? "").trim();
+  if (!shape && editTarget) {
+    try { const t = inspectImage(editTarget.file); shape = `${t.width}x${t.height}`; } catch {}
+  }
+  if (shape) {
+    try {
+      const c = conformImage(file, shape);
+      validation = { ...c.validation, conformed: { conformed: c.conformed, ...(c.conformed ? { original: c.original, cropped: c.cropped, resizedTo: c.resizedTo, upscaled: c.upscaled } : { reason: c.reason }) } };
+    } catch (e) { warnings.push(`Could not fix the image's shape: ${e.message}`); }
+  }
   let copiedTo = null, deliveryError = null;
   if (job.out && path.resolve(job.out) !== file) {
     try { copiedTo = inspectImage(file, job.out).file; }
@@ -171,7 +184,7 @@ try {
       warnings.push(deliveryError);
     }
   }
-  const review = reviewResult(reply, validation, job.request, warnings);
+  const review = reviewResult(reply, validation, { ...job.request, size: shape || job.request.size }, warnings);
   const done = {
     status: "done", finishedAt: now(), thread, file, copiedTo, usage, validation, review, deliveryError,
     prompt: reply?.prompt ?? null, useCase: reply?.use_case ?? null, attempts: reply?.attempts ?? null,
