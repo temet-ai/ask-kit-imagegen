@@ -9,6 +9,6 @@ export default async function ({ imagegen }, { search, studio, limit = 10 } = {}
   const running = imagegen.jobs({ studio, limit: 50 }).filter((j) => j.status === "queued" || j.status === "running")
     .map(({ id, studio, status, secondsSoFar, request, waitingFor }) => ({ id, studio, status, secondsSoFar, request, waitingFor }));
   const images = imagegen.history({ studio, search, limit: Number(limit) || 10 })
-    .map(({ id, studio, at, file, copiedTo, exists, request, useCase, seconds }) => ({ id, studio, at, file, copiedTo, exists, request, useCase, seconds }));
+    .map(({ id, studio, at, file, copiedTo, exists, request, useCase, seconds, review, validation }) => ({ id, studio, at, file, copiedTo, exists, request, useCase, seconds, review, validation }));
   return { running, images };
 }

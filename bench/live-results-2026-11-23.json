@@ -1,0 +1,125 @@
+{
+  "date": "2026-11-23",
+  "kind": "live smoke checks, not a before/after quality benchmark",
+  "codex": "0.171.0",
+  "cases": [
+    {
+      "id": "img-mwt7m0x0-173f",
+      "kind": "make",
+      "request": {
+        "prompt": "A single friendly cocoa-brown lighthouse icon with a small brass lantern, simple rounded silhouette, centered and fully visible with generous padding. No text, no border, no other objects.",
+        "use": "small project icon",
+        "size": "1024x1024",
+        "transparent": true,
+        "maxAttempts": 1
+      },
+      "status": "done",
+      "attempts": 1,
+      "seconds": 144,
+      "validation": {
+        "format": "PNG",
+        "width": 1254,
+        "height": 1254,
+        "hasAlpha": true,
+        "hasTransparency": true,
+        "fullyTransparent": false,
+        "bytes": 439691,
+        "sha256": "fc921f056ecd6ee3270da98b19fbcc7afbabf2b10ec5c2899a37a3c27a96a704"
+      },
+      "review": {
+        "status": "needs_review",
+        "checks": [
+          {
+            "criterion": "Subject and composition",
+            "status": "pass",
+            "detail": "Generated preview shows one rounded cocoa-brown lighthouse with a brass lantern, centered and fully visible with ample padding."
+          },
+          {
+            "criterion": "No text, border, or other objects",
+            "status": "pass",
+            "detail": "None visible in the generated preview."
+          },
+          {
+            "criterion": "1024×1024 dimensions",
+            "status": "fail",
+            "detail": "Saved PNG measures 1254×1254."
+          },
+          {
+            "criterion": "Transparent background",
+            "status": "pass",
+            "detail": "RGBA PNG contains actual transparency; alpha was preserved."
+          },
+          {
+            "criterion": "Clean edges and small-size readability",
+            "status": "unverified",
+            "detail": "Local view_image renders nearly blank despite the visible generated preview. Very faint alpha residue also extends beyond the main silhouette."
+          }
+        ],
+        "warnings": [
+          "Requested 1024x1024; received 1254x1254."
+        ]
+      },
+      "checked": "Inspected the generated preview, opened source and target with view_image, measured PNG dimensions and alpha, and verified an identical copy.",
+      "notes": "Saved unchanged using built-in image_gen. Output is 1254×1254; exact dimensions require a subsequent authorized correction. Attempt limit reached.",
+      "guidanceRevision": "d8604c48dba4fe059718d89ee5d78b6bdbf45fb06aacc82bc5d2eee29108a885"
+    },
+    {
+      "id": "img-mwt7pxou-2aa0",
+      "kind": "edit",
+      "request": {
+        "change": "Change only the cocoa-brown painted tower and its base to a muted medium blue. Keep the brass lantern, warm yellow light, windows, door, silhouette, proportions and framing unchanged. Keep the background transparent.",
+        "image": "img-mwt7m0x0-173f",
+        "size": "square",
+        "transparent": true,
+        "maxAttempts": 1
+      },
+      "status": "done",
+      "attempts": 1,
+      "seconds": 145,
+      "validation": {
+        "format": "PNG",
+        "width": 1254,
+        "height": 1254,
+        "hasAlpha": true,
+        "hasTransparency": true,
+        "fullyTransparent": false,
+        "bytes": 478711,
+        "sha256": "71d34794e711222d87e95608162cc5a122dbc10c200714d392cb467ce1d92d9b"
+      },
+      "review": {
+        "status": "needs_review",
+        "checks": [
+          {
+            "criterion": "Muted medium blue tower and base",
+            "status": "pass",
+            "detail": "Tower body, balcony ledge and rounded base are muted medium blue."
+          },
+          {
+            "criterion": "Preserved lantern, lighting, windows and door",
+            "status": "pass",
+            "detail": "Preview retains the brass lantern and railing, warm yellow light, three arched windows and brown wooden door."
+          },
+          {
+            "criterion": "Square framing and transparency",
+            "status": "pass",
+            "detail": "Input and output are 1254×1254 RGBA PNGs with transparent backgrounds and matching overall placement."
+          },
+          {
+            "criterion": "Unchanged silhouette and clean edges",
+            "status": "fail",
+            "detail": "Visible contour bounds differ by 1–3 pixels; fine blue/cyan fringe appears around parts of the tower and base."
+          },
+          {
+            "criterion": "Saved-file visual verification",
+            "status": "unverified",
+            "detail": "view_image renders the output nearly blank despite the visible generated preview and valid color/alpha pixel data."
+          }
+        ],
+        "warnings": []
+      },
+      "checked": "Compared the supplied image with the generated preview; opened input and output with view_image; measured dimensions, transparency and silhouette bounds; verified the saved copy matches the generated file.",
+      "notes": "Generated with built-in image_gen and saved without modification. Recolor succeeded, but minor contour drift and edge fringe remain. One-attempt limit reached; a further correction would need a new job.",
+      "guidanceRevision": "71dd2274da63a9fefca1c63acec9697185aeff85f90fd8090834509472376dc1"
+    }
+  ]
+}

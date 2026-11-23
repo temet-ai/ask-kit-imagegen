@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { inspectImage } from "./lib/studio.mjs";
 
 const KIT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif)$/i;
@@ -67,6 +68,7 @@ function jobView(j) {
   if (j.checked) out.checked = j.checked;
   if (j.notes) out.notes = j.notes;
   if (j.attempts) out.attempts = j.attempts;
+  for (const key of ["review", "validation", "deliveryError", "guidanceRevision"]) if (j[key]) out[key] = j[key];
   if (status === "failed") out.error = stale ? "the runner stopped without finishing (killed, or the machine restarted)" : j.error;
   out.queuedAt = j.queuedAt;
   if (j.startedAt) out.startedAt = j.startedAt;
@@ -93,14 +95,18 @@ export function make({ settings = {}, cwd: hostCwd, act = false } = {}) {
     const r = String(ref ?? "").trim();
     if (!r) throw new Error("no image named");
     if (r === "last" || r === "latest") {
-      const row = historyRows().reverse().find((h) => h.studio === studio && h.file && fs.existsSync(h.file));
+      const row = historyRows().reverse().find((h) => h.studio === studio && h.file);
       if (!row) throw new Error(`studio "${studio}" has made no image yet`);
-      return row.copiedTo && fs.existsSync(row.copiedTo) ? row.copiedTo : row.file;
+      const file = row.copiedTo && fs.existsSync(row.copiedTo) ? row.copiedTo : row.file;
+      if (!fs.existsSync(file)) throw new Error(`studio "${studio}" latest image (${row.id}) is missing; name an existing image path or job id`);
+      return file;
     }
     if (/^img-[a-z0-9-]+$/.test(r)) {
       const j = readJson(p.job(r));
-      if (!j?.file) throw new Error(`job ${r} has no image (${j ? j.status : "no such job"})`);
-      return j.copiedTo && fs.existsSync(j.copiedTo) ? j.copiedTo : j.file;
+      if (j?.status !== "done" || !j?.file) throw new Error(`job ${r} has no completed image (${j ? j.status : "no such job"})`);
+      const file = j.copiedTo && fs.existsSync(j.copiedTo) ? j.copiedTo : j.file;
+      if (!fs.existsSync(file)) throw new Error(`job ${r} image is missing; name an existing image path`);
+      return file;
     }
     const f = path.resolve(cwd, home(r));
     if (!fs.existsSync(f) || !fs.statSync(f).isFile()) throw new Error(`no image file at ${f}`);
@@ -119,10 +125,21 @@ export function make({ settings = {}, cwd: hostCwd, act = false } = {}) {
 
   function queue(kind, studio, request, { attach = [], out = null } = {}) {
     studio = checkStudio(studio);
+    if (request.maxAttempts !== undefined && ![1, 2].includes(request.maxAttempts)) throw new Error("maxAttempts must be 1 or 2");
+    if (request.transparent !== undefined && typeof request.transparent !== "boolean") throw new Error("transparent must be true or false");
+    // Validate before spending quota, and freeze inputs so queued jobs see the submitted image.
+    inspectImage();
+    for (const a of attach) inspectImage(a.file);
     const id = `img-${Date.now().toString(36)}-${crypto.randomBytes(2).toString("hex")}`;
     const name = `${id}-${slug(request.prompt ?? request.change ?? kind)}`;
     const dir = readJson(p.studio(studio))?.folder ?? studioDir(studio);
     fs.mkdirSync(dir, { recursive: true });
+    attach = attach.map((a, i) => {
+      const file = path.join(dir, ".inputs", id, `${i + 1}${path.extname(a.file).toLowerCase()}`);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.copyFileSync(a.file, file, fs.constants.COPYFILE_EXCL);
+      return { ...a, source: a.file, file };
+    });
     const job = {
       id, studio, kind, request, attach, status: "queued", queuedAt: new Date().toISOString(),
       dir, target: kind === "start" ? null : path.join(dir, `${name}.png`), out: resolveOut(out, name),
@@ -134,6 +151,16 @@ export function make({ settings = {}, cwd: hostCwd, act = false } = {}) {
     job.runnerPid = child.pid;
     writeJson(p.job(id), { ...readJson(p.job(id)), runnerPid: child.pid });
     return jobView(job);
+  }
+
+  function references(refs, studio) {
+    return [].concat(refs).filter(Boolean).map(ref => {
+      if (typeof ref === "string") return { file: resolveImage(ref, studio), role: "reference" };
+      if (!ref || typeof ref.image !== "string" || typeof ref.role !== "string" || !ref.role.trim()) {
+        throw new Error('refs entries must be paths/job ids or {image, role}, such as {image: "brand.png", role: "style reference"}');
+      }
+      return { file: resolveImage(ref.image, studio), role: ref.role };
+    });
   }
 
   const api = {
@@ -188,18 +215,18 @@ export function make({ settings = {}, cwd: hostCwd, act = false } = {}) {
     },
 
     make: act
-      ? ({ prompt, out, refs = [], use, size, avoid, studio = "default" } = {}) => {
+      ? ({ prompt, out, refs = [], use, size, avoid, context, transparent, maxAttempts, studio = "default" } = {}) => {
           if (!String(prompt ?? "").trim()) throw new Error("make needs a prompt: what the image shows");
-          const attach = [].concat(refs).filter(Boolean).map((r) => ({ file: resolveImage(r, studio), role: "reference" }));
-          return queue("make", studio, { prompt: String(prompt), use, size, avoid }, { attach, out });
+          const attach = references(refs, studio);
+          return queue("make", studio, { prompt: String(prompt), use, size, avoid, context, transparent, maxAttempts }, { attach, out });
         }
       : notInThisAsk("making an image"),
 
     edit: act
-      ? ({ image = "last", change, out, refs = [], studio = "default" } = {}) => {
+      ? ({ image = "last", change, out, refs = [], use, size, avoid, context, transparent, maxAttempts, studio = "default" } = {}) => {
           if (!String(change ?? "").trim()) throw new Error("edit needs a change: what to change, and only that");
-          const attach = [{ file: resolveImage(image, studio), role: "edit target" }, ...[].concat(refs).filter(Boolean).map((r) => ({ file: resolveImage(r, studio), role: "reference" }))];
-          return queue("edit", studio, { change: String(change), image: String(image) }, { attach, out });
+          const attach = [{ file: resolveImage(image, studio), role: "edit target" }, ...references(refs, studio)];
+          return queue("edit", studio, { change: String(change), image: String(image), use, size, avoid, context, transparent, maxAttempts }, { attach, out });
         }
       : notInThisAsk("editing an image"),
 

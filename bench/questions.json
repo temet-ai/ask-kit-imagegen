@@ -1,5 +1,5 @@
 {
-  "about": "Questions that read: they spend no image. Making an image costs the Codex plan's quota, so it is tested by hand (see README).",
+  "about": "Questions that read: they spend no image. Offline runner regression tests use a fake Codex process (see README). Live generation uses the plan quota.",
   "questions": [
     { "id": "studios-shot", "do": "studios", "expect": ["name|no studio yet"] },
     { "id": "recent-shot", "do": "recent", "params": { "limit": 3 }, "expect": ["running", "images"] },

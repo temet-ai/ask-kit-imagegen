@@ -1,0 +1,220 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+import { inspectImage, inspector, parseReply, reviewResult } from '../lib/studio.mjs';
+
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'imagegen-tests-'));
+const png = path.join(root, 'fixture.png');
+const fixture = spawnSync('python3', ['-c', 'from PIL import Image; import sys; im=Image.new("RGBA",(32,24),(180,120,50,255)); im.putpixel((0,0),(0,0,0,0)); im.save(sys.argv[1])', png]);
+assert.equal(fixture.status, 0);
+test.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+function environment(name, mode = 'ok') {
+  const dir = path.join(root, name);
+  fs.mkdirSync(path.join(dir, 'bin'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'images'), { recursive: true });
+  const skill = path.join(dir, 'codex/skills/.system/imagegen');
+  fs.mkdirSync(path.join(skill, 'references'), { recursive: true });
+  fs.writeFileSync(path.join(skill, 'SKILL.md'), 'Use built-in image_gen.');
+  fs.writeFileSync(path.join(skill, 'references/prompting.md'), 'Preserve constraints.');
+  const fake = path.join(dir, 'bin/codex');
+  fs.writeFileSync(fake, `#!${process.execPath}
+import fs from 'node:fs';
+import path from 'node:path';
+let input=''; for await(const c of process.stdin) input+=c;
+fs.writeFileSync(path.join(process.env.TEST_DIR,'input.txt'),input);
+fs.writeFileSync(path.join(process.env.TEST_DIR,'argv.json'),JSON.stringify(process.argv));
+const job=JSON.parse(input.split('Job data:\\n\\n')[1]);
+const mode=process.env.TEST_MODE;
+console.log(JSON.stringify({type:'thread.started',thread_id:'test-thread'}));
+if(mode==='hang') { fs.writeFileSync(path.join(process.env.TEST_DIR,'child.pid'),String(process.pid)); await new Promise(r=>setTimeout(r,60000)); }
+if(job.kind==='start') {
+  fs.writeFileSync(process.argv[process.argv.indexOf('-o')+1],JSON.stringify({ready:mode!=='startfail',read:['skill']}));
+  process.exit(0);
+}
+const generated=path.join(process.env.CODEX_HOME,'generated_images/test-thread');
+fs.mkdirSync(generated,{recursive:true});
+if(mode!=='badpath' && mode!=='corrupt') fs.copyFileSync(process.env.FIXTURE,path.join(generated,'new.png'));
+if(mode==='crashafterimage') process.exit(1);
+if(mode==='missingreceipt') { console.log('lost receipt'); process.exit(0); }
+if(mode==='corrupt') fs.writeFileSync(job.target,'not an image');
+else if(mode!=='badpath') fs.copyFileSync(process.env.FIXTURE,job.target);
+const reply={ready:true,read:['skill'],file:mode==='badpath'?process.env.FIXTURE:job.target,use_case:'product-mockup',prompt:job.request.prompt||job.request.change,attempts:1,checked:'The product is visible',notes:'',error:null,review:{status:'pass',checks:[{criterion:'subject',status:'pass',detail:'A product is visible'}]}};
+fs.writeFileSync(process.argv[process.argv.indexOf('-o')+1],JSON.stringify(reply,null,2));
+console.log(JSON.stringify({type:'turn.completed',usage:{}}));
+`);
+  fs.chmodSync(fake, 0o755);
+  const env = { ...process.env, XDG_STATE_HOME: path.join(dir, 'state'), CODEX_HOME: path.join(dir, 'codex'), PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, FIXTURE: png, TEST_MODE: mode, TEST_DIR: dir };
+  return { dir, env };
+}
+
+function jobFiles(e, kind = 'make', request = { prompt: 'A product' }) {
+  const jobs = path.join(e.env.XDG_STATE_HOME, 'ask-kit-imagegen/jobs');
+  fs.mkdirSync(jobs, { recursive: true });
+  const id = `img-${path.basename(e.dir)}`;
+  const jobFile = path.join(jobs, `${id}.json`);
+  const job = { id, studio: 'test', kind, request, attach: [], status: 'queued', queuedAt: new Date().toISOString(), dir: path.join(e.dir, 'images'), target: kind === 'start' ? null : path.join(e.dir, 'images/final.png'), out: path.join(e.dir, 'delivered.png'), callerCwd: e.dir };
+  fs.writeFileSync(jobFile, JSON.stringify(job));
+  return { job, jobFile };
+}
+
+async function run(e, kind, request) {
+  const { jobFile } = jobFiles(e, kind, request);
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['runner.mjs', jobFile], { env: e.env, stdio: 'pipe' });
+    let err = '';
+    child.stderr.on('data', d => err += d);
+    child.on('error', reject);
+    child.on('close', () => err ? reject(new Error(err)) : resolve());
+  });
+  return JSON.parse(fs.readFileSync(jobFile));
+}
+
+test('decodes image and measures actual alpha and size', () => {
+  const result = inspectImage(png);
+  assert.equal(result.width, 32); assert.equal(result.height, 24);
+  assert.equal(result.hasTransparency, true); assert.equal(result.fullyTransparent, false);
+  const bad = path.join(root, 'truncated.png');
+  fs.writeFileSync(bad, fs.readFileSync(png).subarray(0, 40));
+  assert.throws(() => inspectImage(bad));
+});
+
+test('publishes exclusive versions and encodes requested format', () => {
+  const destination = path.join(root, 'output.png');
+  const first = inspectImage(png, destination);
+  const second = inspectImage(png, destination);
+  assert.equal(first.file, destination); assert.match(second.file, /output-v2\.png$/);
+  assert.equal(inspectImage(destination).sha256, inspectImage(png).sha256);
+  const webp = inspectImage(png, path.join(root, 'output.webp'));
+  assert.equal(webp.validation.format, 'WEBP'); assert.equal(webp.validation.hasTransparency, true);
+  assert.throws(() => inspectImage(png, path.join(root, 'output.jpg')), /cannot preserve transparency/);
+});
+
+test('transparent-image inspection preview leaves the delivery source unchanged', () => {
+  const before = inspectImage(png);
+  const destination = path.join(root, 'review.png');
+  const r = spawnSync('python3', [inspector, png, '--preview', destination], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stdout);
+  const result = inspectImage(destination);
+  assert.equal(result.hasTransparency, false); assert.equal(result.width, before.width * 2);
+  assert.equal(inspectImage(png).sha256, before.sha256);
+});
+
+test('parses multiline and fenced receipts', () => {
+  assert.deepEqual(parseReply('```json\n{\n"file":"/tmp/a.png"\n}\n```'), { file: '/tmp/a.png' });
+  assert.equal(parseReply('not json'), null);
+});
+
+test('machine measurements override a claimed visual pass', () => {
+  const reply = { checked: 'looked', review: { status: 'pass', checks: [{ criterion: 'subject', status: 'pass', detail: 'visible' }] } };
+  const result = reviewResult(reply, inspectImage(png), { size: '1024x1024', transparent: false });
+  assert.equal(result.status, 'needs_review'); assert.equal(result.warnings.length, 2);
+  assert.equal(reviewResult(null, inspectImage(png), {}).status, 'unverified');
+  assert.equal(reviewResult({ checked: 'looked', review: { status: 'pass', checks: [] } }, inspectImage(png), {}).status, 'unverified');
+});
+
+test('completes a valid new job with machine and visual evidence', async () => {
+  const e = environment('success');
+  const j = await run(e);
+  assert.equal(j.status, 'done'); assert.equal(j.review.status, 'pass');
+  assert.equal(j.validation.width, 32); assert.ok(fs.existsSync(j.copiedTo));
+  assert.equal(fs.existsSync(path.join(e.env.XDG_STATE_HOME, 'ask-kit-imagegen/locks/test')), false);
+  assert.ok(JSON.parse(fs.readFileSync(path.join(e.dir, 'argv.json'))).includes('--output-schema'));
+});
+
+test('resumed studios receive current guidance, style and request references', async () => {
+  const e = environment('resume');
+  const studios = path.join(e.env.XDG_STATE_HOME, 'ask-kit-imagegen/studios');
+  fs.mkdirSync(studios, { recursive: true });
+  fs.writeFileSync(path.join(studios, 'test.json'), JSON.stringify({ name: 'test', thread: 'test-thread', style: 'cocoa brown', folder: path.join(e.dir, 'images'), guidanceRevision: 'old' }));
+  const j = await run(e, 'edit', { change: 'Make it taller', context: 'Compact layout' });
+  assert.equal(j.status, 'done');
+  const input = fs.readFileSync(path.join(e.dir, 'input.txt'), 'utf8');
+  assert.ok(input.includes('new or changed')); assert.ok(input.includes('cocoa brown')); assert.ok(input.includes('Compact layout'));
+  assert.ok(JSON.parse(fs.readFileSync(path.join(e.dir, 'argv.json'))).includes('resume'));
+});
+
+for (const mode of ['badpath', 'corrupt']) {
+  test(`rejects ${mode} instead of returning an arbitrary file`, async () => {
+    const j = await run(environment(mode, mode));
+    assert.equal(j.status, 'failed'); assert.match(j.error, /no valid image/);
+  });
+}
+for (const mode of ['missingreceipt', 'crashafterimage']) {
+  test(`recovers ${mode} output with an explicit review warning`, async () => {
+    const j = await run(environment(mode, mode));
+    assert.equal(j.status, 'done'); assert.equal(j.review.status, 'needs_review');
+    assert.ok(j.review.warnings.some(w => w.includes('Recovered')));
+  });
+}
+
+test('does not declare a studio ready without confirmation', async () => {
+  const j = await run(environment('startfail', 'startfail'), 'start', {});
+  assert.equal(j.status, 'failed'); assert.match(j.error, /readiness/);
+});
+
+test('delivery error retains the valid original and reports a next action', async () => {
+  const e = environment('delivery');
+  fs.mkdirSync(path.join(e.dir, 'delivered.png'));
+  const { jobFile } = jobFiles(e);
+  const raw = JSON.parse(fs.readFileSync(jobFile));
+  raw.out = path.join(e.dir, 'output.jpg'); fs.writeFileSync(jobFile, JSON.stringify(raw));
+  await new Promise(resolve => spawn(process.execPath, ['runner.mjs', jobFile], { env: e.env, stdio: 'ignore' }).on('close', resolve));
+  const j = JSON.parse(fs.readFileSync(jobFile));
+  assert.equal(j.status, 'done'); assert.equal(j.copiedTo, null);
+  assert.ok(fs.existsSync(j.file)); assert.match(j.deliveryError, /PNG or WebP/);
+  assert.equal(j.review.status, 'needs_review');
+});
+
+test('queue freezes role-labelled references before the source changes', async () => {
+  const e = environment('snapshot');
+  const source = path.join(e.dir, 'source.png'); fs.copyFileSync(png, source);
+  const code = `import fs from 'node:fs'; import {make} from './imagegen.mjs';
+    const api=make({settings:{IMAGES_DIR:process.env.TEST_DIR+'/images'},cwd:process.env.TEST_DIR,act:true});
+    const j=api.edit({image:'source.png',change:'Change the lighting',refs:[{image:'source.png',role:'style reference'}],transparent:true});
+    fs.writeFileSync(process.env.TEST_DIR+'/source.png','changed'); console.log(JSON.stringify(j));`;
+  const queued = spawnSync(process.execPath, ['--input-type=module', '-e', code], { env: e.env, encoding: 'utf8' });
+  assert.equal(queued.status, 0, queued.stderr);
+  const j = JSON.parse(queued.stdout);
+  const jobFile = path.join(e.env.XDG_STATE_HOME, 'ask-kit-imagegen/jobs', j.id + '.json');
+  for (let i = 0; i < 100; i++) {
+    const stored = JSON.parse(fs.readFileSync(jobFile));
+    if (['done', 'failed'].includes(stored.status)) break;
+    await new Promise(r => setTimeout(r, 50));
+  }
+  const stored = JSON.parse(fs.readFileSync(jobFile));
+  assert.equal(stored.status, 'done');
+  assert.equal(stored.attach[1].role, 'style reference');
+  assert.equal(inspectImage(stored.attach[0].file).sha256, inspectImage(png).sha256);
+});
+
+test('a missing latest image never silently selects an older image', () => {
+  const e = environment('missinglatest');
+  const state = path.join(e.env.XDG_STATE_HOME, 'ask-kit-imagegen');
+  fs.mkdirSync(state, { recursive: true });
+  fs.writeFileSync(path.join(state, 'history.jsonl'), [
+    { id: 'img-old', studio: 'default', file: png },
+    { id: 'img-new', studio: 'default', file: path.join(e.dir, 'deleted.png') },
+  ].map(v => JSON.stringify(v)).join('\n') + '\n');
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', `import {make} from './imagegen.mjs'; make({act:true}).edit({change:'Make it blue'});`], { env: e.env, encoding: 'utf8' });
+  assert.notEqual(r.status, 0); assert.match(r.stderr, /latest image \(img-new\) is missing/);
+});
+
+test('cancelling a running worker stops Codex and releases the studio lock', async () => {
+  const e = environment('cancellation', 'hang');
+  const { jobFile } = jobFiles(e);
+  const child = spawn(process.execPath, ['runner.mjs', jobFile], { env: e.env, stdio: 'ignore' });
+  const finished = new Promise(resolve => child.on('close', resolve));
+  for (let i = 0; i < 100 && !fs.existsSync(path.join(e.dir, 'child.pid')); i++) await new Promise(r => setTimeout(r, 30));
+  assert.ok(fs.existsSync(path.join(e.dir, 'child.pid')));
+  const codexPid = Number(fs.readFileSync(path.join(e.dir, 'child.pid')));
+  child.kill('SIGTERM');
+  await finished;
+  const j = JSON.parse(fs.readFileSync(jobFile));
+  assert.equal(j.status, 'failed'); assert.equal(j.error, 'cancelled');
+  assert.equal(fs.existsSync(path.join(e.env.XDG_STATE_HOME, 'ask-kit-imagegen/locks/test')), false);
+  assert.throws(() => process.kill(codexPid, 0), /ESRCH/);
+});

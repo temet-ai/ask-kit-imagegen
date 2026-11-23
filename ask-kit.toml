@@ -1,8 +1,8 @@
 id = "temet.imagegen"
 name = "imagegen"
-version = "0.1.0"
+version = "0.2.0"
 min_ask_kit = "0.2.0"
-requires = ["codex", "node"]
+requires = ["codex", "node", "python3"]
 platforms = ["linux", "macos"]
 says = "making and editing raster images (illustrations, icons, photos, hero images, mockups, textures, transparent cutouts) with Codex's built-in image_gen tool, in a long-lived Codex thread (a studio) that keeps its house style and every earlier image, so a follow-up can say \"the last one, but at night\"; and which images were made, from which prompt, where the files are, whether a job is still running, and which studios exist and how to open one in Codex"
 keywords = ["imagegen", "image_gen", "generate (an? )?images?", "(make|create|draw|render|generate) (me )?(an? )?(image|picture|illustration|icon|logo|hero|banner|thumbnail|sprite|texture|mockup|photo)", "edit (the|this|that|an?) (image|picture|png)", "image studio", "codex image", "gpt-image"]
