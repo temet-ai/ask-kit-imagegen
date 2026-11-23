@@ -30,7 +30,9 @@ whether a job is still running.
 2. `make` and `edit` write a job file and spawn `runner.mjs` detached, then return at once.
 3. The runner reserves one of four slots under a short studio lock, then uses a per-thread lock
    for a resumed thread. The first request holds the studio lock until its thread exists. Edits
-   freeze the source thread alongside the image at submission. Each turn loads `studio-brief.md`
+   freeze the source thread alongside the image at submission. Known file paths recover their
+   source by matching the output path and saved hash; overwritten paths cannot inherit stale
+   reviews. Labelled inputs carry unresolved source checks into the worker. Each turn loads `studio-brief.md`
    and points the worker at `skills/imagegen-studio/SKILL.md` plus the installed imagegen skill.
    It passes labelled snapshot inputs, house style, caller instructions and a content revision;
    the worker rereads guidance when its revision changes or it has left the thread's context.

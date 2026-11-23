@@ -54,6 +54,9 @@ on the PATH used by ask-kit. The kit never changes global Codex settings or auth
 - To keep an object consistent across shots, make one master view, then ask for each other view as an edit of it in the same studio ("the same ship, now side view"). That holds a design better than a multi-view sheet.
 - Reference files are copied when submitted. Queued edits use those copies even if the source
   later changes. `last` resolves when the request is submitted, not after jobs ahead of it finish.
+  A known output path also recovers its source thread when its SHA-256 still matches the saved
+  image. Inputs carry previous unresolved review checks into the worker, including generated
+  library references. These findings do not grant user approval or replace the current request.
 - Images live in `IMAGES_DIR/<studio>/` (default `~/Pictures/imagegen`). An optional `out` gets a
   second copy. Existing destinations are preserved using `-v2`, `-v3`, etc., with exclusive writes.
 - Output copies are encoded for their extension. PNG and WebP preserve alpha. A JPEG destination
@@ -131,7 +134,8 @@ duration, execution result and review status, with short warnings and failed-che
 It does not copy the prompt or image. The runner records completion even when the caller never
 polls the job. Ask-kit 0.6.0 includes these outcomes in `report --kit imagegen` and `improve`.
 An unwritable journal leaves the saved image available and returns `outcomeJournalError`.
-Scripts: `make`, `wait`, `recent` (one line per image; `id=` for one full record), `cancel`, `studios`, `doctor`, `library`, `workflows`. For example:
+Scripts: `make`, `wait`, `recent` (one line per image with its first unresolved defect; `id=` for
+every review check), `cancel`, `studios`, `doctor`, `library`, `workflows`. For example:
 `ask-kit run imagegen recent search=lighthouse`. A direct `make` run spends image quota.
 
 Run offline regression checks with `node --test tests/*.test.mjs`; they use a fake Codex process

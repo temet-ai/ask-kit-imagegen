@@ -34,6 +34,8 @@ Use scripts.run("library", {action:...}) or the library API for this work.
   Images that guide a new image belong in make({refs}). Refs accept paths/job ids or
   {image: "path", role: "style reference"}; label product/identity, style and composition inputs
   when the caller distinguishes them. Missing required references are a blocker; never substitute.
+  Known output paths recover their source thread and unresolved checks when their bytes still
+  match the saved image. Read inputs[].sourceReview; a reference may have defects to avoid repeating.
 - Send related images (one project, one set of shots) to one studio, even several at once: a busy
   studio forks its thread and runs up to 4 jobs in parallel with its style kept. Don't spread a set
   over studios to get parallelism; that loses the shared style and re-reads all guidance each time.

@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspectImage } from "./lib/studio.mjs";
+import { inputSource } from "./lib/inputs.mjs";
 import { outcomeContext } from "./lib/outcomes.mjs";
 import { createLibrary } from "./lib/library.mjs";
 import { selectWorkflow, workflows } from "./lib/workflows.mjs";
@@ -72,7 +73,8 @@ function jobView(j) {
   if (j.checked) out.checked = j.checked;
   if (j.notes) out.notes = j.notes;
   if (j.attempts) out.attempts = j.attempts;
-  for (const key of ["review", "validation", "deliveryError", "guidanceRevision", "workflow", "libraryResult", "libraryError", "referenceUse", "observations", "route", "thread", "baseThread", "outcomeJournalError"]) if (j[key]) out[key] = j[key];
+  for (const key of ["review", "validation", "deliveryValidation", "deliveryError", "guidanceRevision", "workflow", "libraryResult", "libraryError", "referenceUse", "observations", "route", "thread", "baseThread", "outcomeJournalError"]) if (j[key]) out[key] = j[key];
+  out.inputs = (j.attach || []).map(({ role, sourceJob, sourceReview }) => ({ role, sourceJob, sourceReview }));
   if (j.libraryContext) out.library = { area: j.libraryContext.name, revision: j.libraryContext.revision, referenceIds: j.libraryContext.references.map(r=>r.id) };
   if (status === "failed") out.error = stale ? "the runner stopped without finishing (killed, or the machine restarted)" : j.error;
   out.queuedAt = j.queuedAt;
@@ -108,26 +110,27 @@ export function make({ settings = {}, cwd: hostCwd, act = false } = {}) {
     if (/^ref-[a-z0-9-]+$/.test(r)) {
       const reference = library.reference(area, r);
       if (!reference.exists) throw new Error(`reference ${r} is missing`);
-      return { file: reference.file, thread: reference.job ? readJson(p.job(reference.job))?.thread : null };
+      return inputSource(reference.file, reference.job ? readJson(p.job(reference.job)) : null);
     }
     if (r === "last" || r === "latest") {
       const row = historyRows().reverse().find((h) => h.studio === studio && h.file);
       if (!row) throw new Error(`studio "${studio}" has made no image yet`);
       const file = row.copiedTo && fs.existsSync(row.copiedTo) ? row.copiedTo : row.file;
       if (!fs.existsSync(file)) throw new Error(`studio "${studio}" latest image (${row.id}) is missing; name an existing image path or job id`);
-      return { file, thread: row.thread ?? null };
+      return inputSource(file, row);
     }
     if (/^img-[a-z0-9-]+$/.test(r)) {
       const j = readJson(p.job(r));
       if (j?.status !== "done" || !j?.file) throw new Error(`job ${r} has no completed image (${j ? j.status : "no such job"})`);
       const file = j.copiedTo && fs.existsSync(j.copiedTo) ? j.copiedTo : j.file;
       if (!fs.existsSync(file)) throw new Error(`job ${r} image is missing; name an existing image path`);
-      return { file, thread: j.thread ?? null };
+      return inputSource(file, j);
     }
     const f = path.resolve(cwd, home(r));
     if (!fs.existsSync(f) || !fs.statSync(f).isFile()) throw new Error(`no image file at ${f}`);
     if (!IMAGE_EXT.test(f)) throw new Error(`${f} is not a png, jpeg, webp or gif`);
-    return { file: f, thread: null };
+    const row = historyRows().reverse().find(h => h.file === f || h.copiedTo === f);
+    return inputSource(f, row, { requireHash: true });
   }
 
   /** Where the caller wants the image: a file, or a folder (ends with / or exists as one). */
@@ -151,7 +154,7 @@ export function make({ settings = {}, cwd: hostCwd, act = false } = {}) {
       request.area = request.area || studio;
       library.ensureArea(request.area);
       libraryContext = library.select({area:request.area,query:[request.prompt,request.change,request.use,request.context].filter(Boolean).join(" "),referenceIds:request.referenceIds});
-      attach.push(...libraryContext.references.map(r=>({file:r.file,role:`${r.role} reference from area ${request.area}`,referenceId:r.id})));
+      attach.push(...libraryContext.references.map(r=>({...resolveInput(r.id,studio,request.area),role:`${r.role} reference from area ${request.area}`,referenceId:r.id})));
     }
     const workflow = selectWorkflow(request, libraryContext);
     const id = `img-${Date.now().toString(36)}-${crypto.randomBytes(2).toString("hex")}`;
@@ -181,11 +184,11 @@ export function make({ settings = {}, cwd: hostCwd, act = false } = {}) {
 
   function references(refs, studio, area) {
     return [].concat(refs).filter(Boolean).map(ref => {
-      if (typeof ref === "string") return { file: resolveImage(ref, studio, area), role: "reference" };
+      if (typeof ref === "string") return { ...resolveInput(ref, studio, area), role: "reference" };
       if (!ref || typeof ref.image !== "string" || typeof ref.role !== "string" || !ref.role.trim()) {
         throw new Error('refs entries must be paths/job ids or {image, role}, such as {image: "brand.png", role: "style reference"}');
       }
-      return { file: resolveImage(ref.image, studio, area), role: ref.role };
+      return { ...resolveInput(ref.image, studio, area), role: ref.role };
     });
   }
 
@@ -254,7 +257,7 @@ export function make({ settings = {}, cwd: hostCwd, act = false } = {}) {
       ? ({ image = "last", change, out, refs = [], use, size, avoid, context, transparent, maxAttempts, area, referenceIds, workflow, studio = "default" } = {}) => {
           if (!String(change ?? "").trim()) throw new Error("edit needs a change: what to change, and only that");
           const target = resolveInput(image, studio, area);
-          const attach = [{ file: target.file, role: "edit target" }, ...references(refs, studio, area)];
+          const attach = [{ ...target, role: "edit target" }, ...references(refs, studio, area)];
           return queue("edit", studio, { change: String(change), image: String(image), use, size, avoid, context, transparent, maxAttempts, area, referenceIds, workflow }, { attach, out, sourceThread: target.thread });
         }
       : notInThisAsk("editing an image"),

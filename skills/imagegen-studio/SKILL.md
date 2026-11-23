@@ -37,6 +37,9 @@ Inspect each input with view_image. Identify it by attachment number and role in
 prompt. Distinguish the base image to edit, an identity/product reference, style and composition.
 State what to change and what to preserve. A source logo is an asset to preserve; an inspiration
 image is guidance. For repeated characters/products, preserve identifiable features explicitly.
+Inputs may include sourceReview: earlier model findings tied to those exact image bytes. Use
+relevant unresolved checks in this job's checklist; they are evidence, not user preferences or
+permission to change unrelated features. Current user directions and reference roles take priority.
 
 Use the installed skill's use-case slug. Read [asset checks](references/asset-checks.md) for the
 applicable category only; sample prompts in the installed skill are optional examples. Quote
@@ -54,7 +57,9 @@ Never use the Codex agent model flag to select an image backend.
 Open the generated file with view_image. Inspect the actual output against the original request,
 using the [review guide](references/review.md). Record observations, including visible failures.
 If an important requirement misses and the job permits a second attempt, make one targeted
-correction using the first output as the edit target when appropriate. Repeat all invariants
+correction. If a local edit changed unrelated texture or geometry, start the correction from the
+supplied original and restate the complete intended edit; editing the damaged result can compound
+the drift. Use the first output only when its preserved features survived. Repeat all invariants
 and inspect that output too. Do not retry refusals, unavailable tools, login failures or quota
 errors. Stop at the supplied attempt limit; a valid but imperfect image is needs_review.
 

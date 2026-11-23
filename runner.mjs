@@ -127,7 +127,7 @@ async function chooseThread(studio) {
         save({ status: "running" });
         return { mode: "new" }; // Keep admission locked until the first thread is saved.
       }
-      const base = (job.kind === "edit" && (job.sourceThread ?? threadOf(job.request.image))) || studio.thread;
+      const base = (job.kind === "edit" && (Object.hasOwn(job, "sourceThread") ? job.sourceThread : threadOf(job.request.image))) || studio.thread;
       const resume = await takeLock(paths.lock(`thread-${base}`), { wait: false });
       save({ status: "running" });
       releaseLock(admission);
@@ -261,9 +261,9 @@ try {
       validation = { ...c.validation, conformed: { conformed: c.conformed, ...(c.conformed ? { original: c.original, cropped: c.cropped, resizedTo: c.resizedTo, upscaled: c.upscaled } : { reason: c.reason }) } };
     } catch (e) { warnings.push(`Could not fix the image's shape: ${e.message}`); }
   }
-  let copiedTo = null, deliveryError = null;
+  let copiedTo = null, deliveryValidation = null, deliveryError = null;
   if (job.out && path.resolve(job.out) !== file) {
-    try { copiedTo = inspectImage(file, job.out).file; }
+    try { const published = inspectImage(file, job.out); copiedTo = published.file; deliveryValidation = published.validation; }
     catch (e) {
       deliveryError = `Image kept at ${file}; could not publish to ${job.out}: ${e.message}`;
       warnings.push(deliveryError);
@@ -271,7 +271,7 @@ try {
   }
   const review = reviewResult(reply, validation, { ...job.request, size: shape || job.request.size }, warnings);
   const done = {
-    status: "done", finishedAt: now(), thread, file, copiedTo, usage, validation, review, deliveryError,
+    status: "done", finishedAt: now(), thread, file, copiedTo, usage, validation, deliveryValidation, review, deliveryError,
     prompt: reply?.prompt ?? null, useCase: reply?.use_case ?? null, attempts: reply?.attempts ?? null,
     checked: reply?.checked ?? null, notes: reply?.notes ?? (reply ? null : "the studio did not send its JSON line; the image is the newest one it generated"),
     referenceUse:Array.isArray(reply?.reference_use)?reply.reference_use:[], observations:Array.isArray(reply?.style_observations)?reply.style_observations:[],
@@ -280,7 +280,7 @@ try {
   fs.appendFileSync(paths.history(), JSON.stringify({
     id: job.id, studio: job.studio, kind: job.kind, at: done.finishedAt, file, copiedTo,
     request: job.request, prompt: done.prompt, useCase: done.useCase, notes: done.notes, thread,
-    validation, review, checked: done.checked, attempts: done.attempts, guidanceRevision: guidance.revision,
+    validation, deliveryValidation, review, checked: done.checked, attempts: done.attempts, guidanceRevision: guidance.revision,
     area:job.request.area, libraryResult:job.libraryResult, workflow:job.workflow,
     seconds: Math.round((Date.now() - started) / 1000),
   }) + "\n");

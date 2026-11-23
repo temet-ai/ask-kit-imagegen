@@ -8,6 +8,9 @@ observation. Typical criteria are subject/count, composition, reference fidelity
 edit invariants, style/avoid items and edge quality. Omit criteria irrelevant to this image.
 For text, transcribe what you can actually read and compare it to the request. For an edit,
 compare to the supplied original. Do not infer successful preservation from memory alone.
+For counts and proportions, plan a view where the requested parts and size relationships can
+be inspected; do not add a view the caller did not request. Check contacts, cropped extremities
+and relative lengths before spending the correction attempt. Hidden parts remain unverified.
 
 The runner independently measures format and alpha, and fixes exact dimensions itself (it crops
 and resizes an image within 3% of the requested shape), so leave pixel size out of your checks.

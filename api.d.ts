@@ -70,7 +70,8 @@ interface Job {
   checked?: string;        // what the studio checked when it looked at its image
   notes?: string;          // choices it made, or what still misses
   attempts?: number;       // 1 or 2: it regenerates once when its check fails
-  review?: ImageReview; validation?: ImageValidation; deliveryError?: string; guidanceRevision?: string;
+  review?: ImageReview; validation?: ImageValidation; deliveryValidation?: ImageValidation; deliveryError?: string; guidanceRevision?: string;
+  inputs?: {role: string; sourceJob?: string; sourceReview?: ImageReview}[];
   workflow?: Workflow; library?: {area: string; revision: number; referenceIds: string[]};
   libraryResult?: LibraryResult; libraryError?: string;
   referenceUse?: {reference: string; traits: string}[]; observations?: string[];
@@ -91,7 +92,7 @@ interface Studio {
 interface HistoryRow {
   id: string; studio: string; kind: "make" | "edit"; at: string; file: string; copiedTo: string | null;
   request: Job["request"]; prompt: string | null; useCase: string | null; notes: string | null; thread: string; seconds: number;
-  review?: ImageReview; validation?: ImageValidation; checked?: string; attempts?: number; guidanceRevision?: string;
+  review?: ImageReview; validation?: ImageValidation; deliveryValidation?: ImageValidation; checked?: string; attempts?: number; guidanceRevision?: string;
   area?: string; libraryResult?: LibraryResult; workflow?: Workflow;
   exists: boolean;          // the file is still there
 }

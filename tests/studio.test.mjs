@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { conformImage, inspectImage, inspector, parseReply, reviewResult } from '../lib/studio.mjs';
+import { inputSource } from '../lib/inputs.mjs';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'imagegen-tests-'));
 const png = path.join(root, 'fixture.png');
@@ -134,6 +135,9 @@ test('completes a valid new job with machine and visual evidence', async () => {
   const j = await run(e);
   assert.equal(j.status, 'done'); assert.equal(j.review.status, 'pass');
   assert.equal(j.validation.width, 32); assert.ok(fs.existsSync(j.copiedTo));
+  assert.equal(j.deliveryValidation.sha256, inspectImage(j.copiedTo).sha256);
+  const history = JSON.parse(fs.readFileSync(path.join(e.env.XDG_STATE_HOME, 'ask-kit-imagegen/history.jsonl'), 'utf8').trim());
+  assert.equal(history.deliveryValidation.sha256, j.deliveryValidation.sha256);
   assert.equal(fs.existsSync(path.join(e.env.XDG_STATE_HOME, 'ask-kit-imagegen/locks/test')), false);
   assert.ok(JSON.parse(fs.readFileSync(path.join(e.dir, 'argv.json'))).includes('--output-schema'));
 });
@@ -426,6 +430,75 @@ test('studio busy checks include active jobs older than the recent-job page', ()
   for (let i = 0; i < 50; i++) fs.writeFileSync(path.join(jobs, `img-done-${i}.json`), JSON.stringify({ id:`img-done-${i}`, studio:'test', status:'done', queuedAt:'2026-01-02T00:00:00Z' }));
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', `import assert from 'node:assert/strict'; import {make} from './imagegen.mjs'; const api=make({act:true}); assert.deepEqual(api.studios()[0].busyWith,['img-active']); assert.throws(()=>api.reset({studio:'test'}),/busy with img-active/);`], { env:e.env, encoding:'utf8' });
   assert.equal(r.status, 0, r.stderr);
+});
+
+test('source reviews follow image bytes, including a separately encoded delivery', () => {
+  const exported = inspectImage(png, path.join(root, 'watch.webp'));
+  const record = { id:'img-watch', file:png, copiedTo:exported.file, thread:'watch-thread', validation:inspectImage(png), deliveryValidation:exported.validation,
+    review:{status:'needs_review',checks:[{criterion:'Badge',status:'pass',detail:'Visible'},{criterion:'Lettering',status:'fail',detail:'Watch is misspelled'}],warnings:[]} };
+  assert.equal(inputSource(exported.file, record, {requireHash:true}).thread, 'watch-thread');
+  assert.deepEqual(inputSource(png, record).sourceReview.checks.map(c=>c.criterion), ['Lettering']);
+  assert.equal(inputSource(png, {...record,validation:{sha256:'old'}}).sourceJob, undefined);
+  assert.equal(inputSource(png, {id:'img-old',thread:'old-thread'}, {requireHash:true}).thread, null);
+  assert.equal(inputSource(png, {id:'img-old',thread:'old-thread'}).thread, 'old-thread');
+});
+
+for (const via of ['path', 'last', 'job', 'library', 'automatic']) {
+  test(`${via} inputs carry source review into the worker and edits resume the source thread`, async () => {
+    const e = environment(`watch-${via}`);
+    const {state,lock} = busyStudio(e); fs.rmSync(lock, {recursive:true});
+    const source = path.join(e.dir, 'watch.png'); fs.copyFileSync(png, source);
+    const original = {id:'img-watch-master',studio:'test',status:'done',kind:'make',thread:'watch-master-thread',file:source,queuedAt:new Date().toISOString(),
+      request:{prompt:'The Watch badge',area:'test'},validation:inspectImage(source),review:{status:'needs_review',checks:[{criterion:'Lettering',status:'fail',detail:'Watch is misspelled'}],warnings:[]}};
+    fs.mkdirSync(path.join(state,'jobs'), {recursive:true});
+    fs.writeFileSync(path.join(state,'jobs',`${original.id}.json`),JSON.stringify(original));
+    fs.writeFileSync(path.join(state,'history.jsonl'),JSON.stringify(original)+'\n');
+    const queued=spawnSync(process.execPath,['--input-type=module','-e',`
+      import fs from 'node:fs'; import {make} from './imagegen.mjs';
+      const api=make({settings:{IMAGES_DIR:process.env.TEST_DIR+'/images'},cwd:process.env.TEST_DIR,act:true});
+      const via=${JSON.stringify(via)};
+      const original=JSON.parse(fs.readFileSync(${JSON.stringify(path.join(state,'jobs',`${original.id}.json`))}));
+      const result=api.library.recordJob(original);
+      if(via==='automatic') api.library.feedback({area:'test',reference:result.reference,verdict:'approved',role:'palette',note:'Use only these colours'});
+      const image=({path:'watch.png',last:'last',job:original.id,library:result.reference})[via];
+      const j=via==='automatic'?api.make({studio:'test',prompt:'The Watch at night'}):api.edit({studio:'test',image,change:'Correct the lettering',refs:[{image:'watch.png',role:'identity'}]});
+      original.review.checks[0].detail='Changed after submission';
+      fs.writeFileSync(${JSON.stringify(path.join(state,'jobs',`${original.id}.json`))},JSON.stringify(original));
+      console.log(JSON.stringify(j));
+    `],{env:e.env,encoding:'utf8'});
+    assert.equal(queued.status,0,queued.stderr);
+    const j=JSON.parse(queued.stdout);
+    assert.equal(j.inputs[0].sourceJob,original.id);
+    const file=path.join(state,'jobs',`${j.id}.json`);
+    for(let i=0;i<200;i++) {
+      if(['done','failed'].includes(JSON.parse(fs.readFileSync(file)).status)) break;
+      await new Promise(r=>setTimeout(r,30));
+    }
+    const done=JSON.parse(fs.readFileSync(file));
+    assert.equal(done.status,'done',done.error);
+    if(via!=='automatic') assert.equal(done.baseThread,original.thread);
+    const contract=JSON.parse(fs.readFileSync(path.join(e.dir,'input.txt'),'utf8').split('Job data:\n\n')[1]);
+    assert.equal(contract.inputs[0].sourceReview.checks[0].detail,'Watch is misspelled');
+    assert.equal(contract.inputs[0].sourceReview.status,'needs_review');
+    if(via!=='automatic') assert.equal(contract.inputs[1].sourceJob,original.id);
+    else assert.match(contract.inputs[0].role,/palette/);
+    assert.equal(done.review.status,'pass'); // Source warnings are context, not a verdict on the new image.
+    assert.equal(done.deliveryValidation,null);
+  });
+}
+
+test('an overwritten output path cannot inherit the former image thread or review', async () => {
+  const e=environment('watch-overwritten');
+  const {state,lock}=busyStudio(e); fs.rmSync(lock,{recursive:true});
+  const source=path.join(e.dir,'watch.png'); fs.copyFileSync(png,source);
+  fs.writeFileSync(path.join(state,'history.jsonl'),JSON.stringify({id:'img-watch',file:source,thread:'wrong-thread',validation:{sha256:'old-bytes'},review:{status:'needs_review'}})+'\n');
+  const queued=spawnSync(process.execPath,['--input-type=module','-e',`import {make} from './imagegen.mjs'; console.log(JSON.stringify(make({cwd:process.env.TEST_DIR,act:true}).edit({studio:'test',image:'watch.png',change:'Change the lighting'})));`],{env:e.env,encoding:'utf8'});
+  assert.equal(queued.status,0,queued.stderr);
+  const j=JSON.parse(queued.stdout), file=path.join(state,'jobs',j.id+'.json');
+  assert.equal(j.inputs[0].sourceJob,undefined);
+  for(let i=0;i<200;i++) {if(['done','failed'].includes(JSON.parse(fs.readFileSync(file)).status))break;await new Promise(r=>setTimeout(r,30));}
+  const done=JSON.parse(fs.readFileSync(file));
+  assert.equal(done.status,'done'); assert.equal(done.baseThread,'test-thread');
 });
 
 test('queued area references reach the worker with a pinned workflow and journalled output', async () => {
